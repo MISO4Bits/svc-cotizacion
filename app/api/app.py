@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 from app.api.errors import install_error_handlers
 from app.api.routes import router
 from app.config import Settings, get_settings
+
+SPEC_PATH = Path(__file__).resolve().parents[2] / "openapi" / "openapi.yaml"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -24,5 +28,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health", include_in_schema=False)
     async def health() -> dict:
         return {"status": "ok", "service": settings.service_name}
+
+    if SPEC_PATH.exists():
+
+        @app.get("/openapi.yaml", include_in_schema=False)
+        async def openapi_yaml() -> FileResponse:
+            return FileResponse(SPEC_PATH, media_type="application/yaml")
 
     return app

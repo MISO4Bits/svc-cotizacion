@@ -32,6 +32,7 @@ WORKDIR /app
 
 COPY --from=build /opt/venv /opt/venv
 COPY app ./app
+COPY openapi ./openapi
 
 USER app
 EXPOSE 8080
