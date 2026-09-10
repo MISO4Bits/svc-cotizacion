@@ -7,6 +7,7 @@ import pytest
 
 from app.adapters.factory import build_dependencias
 from app.adapters.fakes import FakeCotizacionRepository, FakePerfilRiesgo
+from app.adapters.perfilador_client import PerfiladorClient
 from app.config import Settings
 from app.domain import (
     ActividadFisica,
@@ -125,3 +126,12 @@ async def test_service_de_punta_a_punta_con_fakes():
 
 async def test_dependencias_aclose_con_fakes():
     await build_dependencias(Settings(adapters="fake")).aclose()
+
+
+def test_factory_modo_http_arma_cliente_resiliente():
+    deps = build_dependencias(Settings(adapters="http"))
+    assert isinstance(deps.perfilador, PerfiladorClient)
+
+
+async def test_dependencias_aclose_cierra_el_cliente_http():
+    await build_dependencias(Settings(adapters="http")).aclose()

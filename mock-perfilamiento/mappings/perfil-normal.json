@@ -1,0 +1,21 @@
+{
+  "priority": 5,
+  "request": {
+    "method": "POST",
+    "urlPath": "/perfiles"
+  },
+  "response": {
+    "status": 200,
+    "fixedDelayMilliseconds": 40,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "nivelRiesgo": "BAJO",
+      "factorAjuste": 0.9,
+      "factores": [
+        { "descripcion": "Actividad fisica regular", "efecto": "POSITIVO", "pesoRelativo": 0.2 },
+        { "descripcion": "Sin condiciones preexistentes", "efecto": "POSITIVO", "pesoRelativo": 0.15 }
+      ],
+      "fuentesNoDisponibles": []
+    }
+  }
+}
