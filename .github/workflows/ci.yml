@@ -86,7 +86,7 @@ jobs:
   image:
     name: image
     runs-on: ubuntu-latest
-    needs: [quality, sonar]
+    needs: [gitleaks, quality, sonar]
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
