@@ -140,6 +140,21 @@ class Cobertura:
 
 
 @dataclass(frozen=True)
+class Tarifa:
+    """Factores de tarifa vigentes para un ramo, provistos por la dependencia de tarifación.
+
+    El motor de rating (en ``services.py``) combina la solicitud con esta tarifa
+    para producir la ``PrimaDesglose`` y las coberturas de la cotización.
+    """
+
+    ramo: Ramo
+    tasa_base_anual: Decimal  # proporción del valor asegurado, por año de vigencia
+    recargo_gastos: Decimal  # proporción de gastos sobre la prima pura
+    tasa_impuesto: Decimal  # proporción de impuesto sobre (prima pura + gastos)
+    coberturas: tuple[Cobertura, ...]
+
+
+@dataclass(frozen=True)
 class Vigencia:
     desde: datetime
     hasta: datetime

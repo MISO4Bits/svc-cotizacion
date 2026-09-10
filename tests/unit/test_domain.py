@@ -20,6 +20,7 @@ from app.domain import (
     Solicitante,
     SolicitudCotizacion,
     SolicitudInvalida,
+    Tarifa,
     TipoCanal,
     TipoDispositivo,
     Vigencia,
@@ -122,3 +123,16 @@ def test_cotizacion_camino_feliz():
 def test_cotizacion_exige_al_menos_una_cobertura():
     with pytest.raises(ReglaNegocio):
         _cotizacion(())
+
+
+def test_tarifa_se_construye():
+    cob = Cobertura("ROBO", "Robo y hurto", Decimal("3000000"), Decimal("150000"))
+    t = Tarifa(
+        ramo=Ramo.PROTECCION_DISPOSITIVO,
+        tasa_base_anual=Decimal("0.04"),
+        recargo_gastos=Decimal("0.15"),
+        tasa_impuesto=Decimal("0.19"),
+        coberturas=(cob,),
+    )
+    assert t.ramo == "PROTECCION_DISPOSITIVO"
+    assert t.coberturas[0].codigo == "ROBO"
