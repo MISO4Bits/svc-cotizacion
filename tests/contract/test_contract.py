@@ -6,15 +6,29 @@ import re
 
 from jsonschema import Draft202012Validator
 
+from app.adapters.fakes import FakePerfilRiesgo
+from app.services import CotizacionService
+
 _METODOS = {"get", "post", "put", "patch", "delete"}
 _REF = re.compile(r"#/components/schemas/([A-Za-z0-9_]+)")
 _PATH_PARAM = re.compile(r"\{[^}]+\}")
 
+HEADERS = {"X-Cliente-Id": "cli-123"}
+
 SOLICITUD_VALIDA = {
-    "ramo": "PROTECCION_DISPOSITIVO",
-    "canal": {"tipo": "SOCIO", "socioId": "banco-x"},
-    "dispositivo": {"tipo": "CELULAR", "valorAsegurado": 3000000, "antiguedadMeses": 8},
-    "solicitante": {"edad": 28, "pais": "CO"},
+    "datosCredito": {
+        "valorCredito": 150000000,
+        "plazoMeses": 240,
+        "edad": 38,
+        "entidadAcreedora": "Banco X",
+        "saldoInsoluto": 140000000,
+    },
+    "cuestionarioHabitos": {
+        "consumeTabaco": False,
+        "actividadFisica": "REGULAR",
+        "condicionesPreexistentes": False,
+        "dependientesEconomicos": 2,
+    },
 }
 
 
@@ -35,10 +49,10 @@ def _validar(spec: dict, ref: str, instancia) -> None:
 
 def test_spec_tiene_estructura_openapi(openapi_spec):
     assert openapi_spec["openapi"].startswith("3.")
-    assert "post" in openapi_spec["paths"]["/v1/cotizaciones"]
+    assert "post" in openapi_spec["paths"]["/cotizaciones"]
 
 
-def test_todas_las_referencias_de_schema_existen(openapi_spec):
+def test_referencias_de_schema_existen(openapi_spec):
     definidos = set(openapi_spec["components"]["schemas"])
     assert not set(_REF.findall(str(openapi_spec))) - definidos
 
@@ -52,14 +66,26 @@ def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
     assert _ops(app.openapi()["paths"]) == _ops(openapi_spec["paths"])
 
 
-async def test_la_respuesta_cumple_el_contrato(client, openapi_spec):
-    resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA)
+async def test_respuesta_personalizada_cumple_el_contrato(client, openapi_spec):
+    resp = await client.post("/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
     assert resp.status_code == 201
     _validar(openapi_spec, "Cotizacion", resp.json())
 
 
-async def test_el_error_cumple_problem_details(client, openapi_spec):
-    resp = await client.post("/v1/cotizaciones", json={"ramo": "PROTECCION_DISPOSITIVO"})
+async def test_respuesta_degradada_cumple_el_contrato(app, client, openapi_spec):
+    app.state.service = CotizacionService(
+        FakePerfilRiesgo(disponible=False), app.state.deps.repositorio
+    )
+    resp = await client.post("/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+    assert resp.status_code == 201
+    cuerpo = resp.json()
+    assert cuerpo["oferta"]["personalizado"] is False
+    assert "perfilRiesgo" not in cuerpo
+    _validar(openapi_spec, "Cotizacion", cuerpo)
+
+
+async def test_error_cumple_problem_details(client, openapi_spec):
+    resp = await client.post("/cotizaciones", json={}, headers=HEADERS)
     assert resp.status_code == 400
     assert resp.headers["content-type"].startswith("application/problem+json")
     _validar(openapi_spec, "Problema", resp.json())

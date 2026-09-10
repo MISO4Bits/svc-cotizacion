@@ -9,8 +9,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-RamoLiteral = Literal["PROTECCION_DISPOSITIVO"]
-
 
 class _Model(BaseModel):
     model_config = ConfigDict(
@@ -24,45 +22,48 @@ class _Model(BaseModel):
 # --- entrada ---
 
 
-class CanalIn(_Model):
-    tipo: Literal["SOCIO", "ASESOR"]
-    socio_id: str = Field(min_length=1, max_length=40)
+class DatosCreditoIn(_Model):
+    valor_credito: Decimal = Field(ge=10_000_000)
+    plazo_meses: int = Field(ge=12, le=480)
+    edad: int = Field(ge=18, le=65)
+    entidad_acreedora: str = Field(min_length=2, max_length=80)
+    saldo_insoluto: Decimal = Field(gt=0)
 
 
-class DispositivoIn(_Model):
-    tipo: Literal["CELULAR", "PORTATIL", "TABLET"]
-    valor_asegurado: Decimal = Field(gt=0, le=50_000_000)
-    antiguedad_meses: int = Field(ge=0, le=120)
-
-
-class SolicitanteIn(_Model):
-    edad: int = Field(ge=18, le=99)
-    pais: Literal["CO"]
+class CuestionarioHabitosIn(_Model):
+    consume_tabaco: bool
+    actividad_fisica: Literal["NUNCA", "OCASIONAL", "REGULAR"]
+    condiciones_preexistentes: bool
+    dependientes_economicos: int = Field(ge=0, le=20)
 
 
 class SolicitudCotizacionIn(_Model):
-    ramo: RamoLiteral
-    canal: CanalIn
-    dispositivo: DispositivoIn
-    solicitante: SolicitanteIn
+    datos_credito: DatosCreditoIn
+    cuestionario_habitos: CuestionarioHabitosIn
 
 
 # --- salida ---
 
 
-class PrimaOut(_Model):
-    prima_pura: float
-    gastos: float
-    impuestos: float
-    total: float
-    moneda: Literal["COP"]
+class FactorRiesgoOut(_Model):
+    descripcion: str
+    efecto: Literal["POSITIVO", "NEGATIVO"]
+    peso_relativo: float | None = None
 
 
-class CoberturaOut(_Model):
-    codigo: str
-    nombre: str
+class PerfilRiesgoOut(_Model):
+    nivel_riesgo: Literal["BAJO", "MEDIO", "ALTO"]
+    factores: list[FactorRiesgoOut]
+
+
+class OfertaOut(_Model):
+    prima_mensual: float
+    prima_base_mensual: float
     suma_asegurada: float
-    deducible: float
+    cobertura_meses: int
+    moneda: Literal["COP"]
+    personalizado: bool
+    fuentes_no_disponibles: list[str] = Field(default_factory=list)
 
 
 class VigenciaOut(_Model):
@@ -72,9 +73,9 @@ class VigenciaOut(_Model):
 
 class CotizacionOut(_Model):
     id: str
-    estado: Literal["VIGENTE", "EXPIRADA", "ACEPTADA", "RECHAZADA"]
-    ramo: RamoLiteral
-    prima: PrimaOut
-    coberturas: list[CoberturaOut]
+    estado: Literal["VIGENTE", "EXPIRADA"]
+    producto: Literal["VIDA_HIPOTECARIO"]
+    oferta: OfertaOut
+    perfil_riesgo: PerfilRiesgoOut | None = None
     vigencia_cotizacion: VigenciaOut
     creada_en: datetime

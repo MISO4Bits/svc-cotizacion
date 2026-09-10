@@ -1,25 +1,25 @@
 """Puertos de salida del servicio de Cotización.
 
-Contratos que el servicio necesita del mundo exterior. Las implementaciones
-concretas (en memoria, HTTP, base de datos) viven en ``app/adapters/`` y se
-eligen en ``adapters/factory.py``.
+Nombres del diseño de David (Confluence › "Cotización y Rating"). Para EXP-02 solo
+se implementan estos dos; los demás puertos (ReglasRatingPort, CachePort,
+SenalesExternasPort, EventosPort) quedan para después.
 """
 
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.domain import Cotizacion, Ramo, Tarifa
+from app.domain import Cotizacion, PerfilRiesgo, SolicitudCotizacion
 
 
 @runtime_checkable
-class ProveedorTarifaPort(Protocol):
-    async def obtener_tarifa(self, ramo: Ramo) -> Tarifa:
-        """Devuelve los factores de tarifa vigentes para el ramo.
+class PerfilRiesgoPort(Protocol):
+    async def perfilar(self, solicitud: SolicitudCotizacion) -> PerfilRiesgo:
+        """Pide a Perfilamiento el perfil de riesgo y el factor de ajuste del cliente.
 
-        En la Fase D esta es la dependencia que el experimento de resiliencia
-        degrada (timeout, 5xx, desconexión). Lanza ``DependenciaNoDisponible``
-        si la fuente no responde a tiempo.
+        Es la dependencia que EXP-02 degrada (timeout, 5xx, desconexión). Lanza
+        ``DependenciaNoDisponible`` si Perfilamiento no responde a tiempo; el
+        servicio captura esa excepción y cae a tarifa estándar (BITS-105 AC-2).
         """
         ...
 
@@ -30,6 +30,6 @@ class CotizacionRepositoryPort(Protocol):
         """Persiste una cotización nueva."""
         ...
 
-    async def obtener(self, cotizacion_id: str) -> Cotizacion:
-        """Recupera una cotización por id. Lanza ``RecursoNoEncontrado`` si no existe."""
+    async def obtener(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
+        """Recupera una cotización del cliente. Lanza ``RecursoNoEncontrado`` si no existe."""
         ...

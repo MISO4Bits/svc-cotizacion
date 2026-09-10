@@ -2,28 +2,28 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Header, Request, status
 
 from app.api.schemas import (
-    CoberturaOut,
     CotizacionOut,
-    PrimaOut,
+    FactorRiesgoOut,
+    OfertaOut,
+    PerfilRiesgoOut,
     SolicitudCotizacionIn,
     VigenciaOut,
 )
 from app.domain import (
-    Canal,
+    ActividadFisica,
     Cotizacion,
-    Dispositivo,
-    Ramo,
-    Solicitante,
+    CuestionarioHabitos,
+    DatosCredito,
     SolicitudCotizacion,
-    TipoCanal,
-    TipoDispositivo,
 )
 from app.services import CotizacionService
 
-router = APIRouter(prefix="/v1")
+router = APIRouter(tags=["Cotización"])
+
+ClienteId = Annotated[str, Header(alias="X-Cliente-Id", min_length=1, max_length=64)]
 
 
 def get_service(request: Request) -> CotizacionService:
@@ -33,40 +33,56 @@ def get_service(request: Request) -> CotizacionService:
 ServiceDep = Annotated[CotizacionService, Depends(get_service)]
 
 
-def _a_dominio(payload: SolicitudCotizacionIn) -> SolicitudCotizacion:
+def _a_dominio(cliente_id: str, payload: SolicitudCotizacionIn) -> SolicitudCotizacion:
+    dc = payload.datos_credito
+    q = payload.cuestionario_habitos
     return SolicitudCotizacion(
-        ramo=Ramo(payload.ramo),
-        canal=Canal(TipoCanal(payload.canal.tipo), payload.canal.socio_id),
-        dispositivo=Dispositivo(
-            TipoDispositivo(payload.dispositivo.tipo),
-            payload.dispositivo.valor_asegurado,
-            payload.dispositivo.antiguedad_meses,
+        cliente_id=cliente_id,
+        datos_credito=DatosCredito(
+            valor_credito=dc.valor_credito,
+            plazo_meses=dc.plazo_meses,
+            edad=dc.edad,
+            entidad_acreedora=dc.entidad_acreedora,
+            saldo_insoluto=dc.saldo_insoluto,
         ),
-        solicitante=Solicitante(payload.solicitante.edad, payload.solicitante.pais),
+        cuestionario_habitos=CuestionarioHabitos(
+            consume_tabaco=q.consume_tabaco,
+            actividad_fisica=ActividadFisica(q.actividad_fisica),
+            condiciones_preexistentes=q.condiciones_preexistentes,
+            dependientes_economicos=q.dependientes_economicos,
+        ),
     )
 
 
 def _a_salida(cot: Cotizacion) -> CotizacionOut:
+    o = cot.oferta
+    perfil = None
+    if cot.perfil_riesgo is not None:
+        perfil = PerfilRiesgoOut(
+            nivel_riesgo=str(cot.perfil_riesgo.nivel_riesgo),
+            factores=[
+                FactorRiesgoOut(
+                    descripcion=f.descripcion,
+                    efecto=str(f.efecto),
+                    peso_relativo=(float(f.peso_relativo) if f.peso_relativo is not None else None),
+                )
+                for f in cot.perfil_riesgo.factores
+            ],
+        )
     return CotizacionOut(
         id=cot.id,
         estado=str(cot.estado),
-        ramo=str(cot.ramo),
-        prima=PrimaOut(
-            prima_pura=float(cot.prima.prima_pura),
-            gastos=float(cot.prima.gastos),
-            impuestos=float(cot.prima.impuestos),
-            total=float(cot.prima.total),
-            moneda=str(cot.prima.moneda),
+        producto=cot.producto,
+        oferta=OfertaOut(
+            prima_mensual=float(o.prima_mensual),
+            prima_base_mensual=float(o.prima_base_mensual),
+            suma_asegurada=float(o.suma_asegurada),
+            cobertura_meses=o.cobertura_meses,
+            moneda=str(o.moneda),
+            personalizado=o.personalizado,
+            fuentes_no_disponibles=list(o.fuentes_no_disponibles),
         ),
-        coberturas=[
-            CoberturaOut(
-                codigo=c.codigo,
-                nombre=c.nombre,
-                suma_asegurada=float(c.suma_asegurada),
-                deducible=float(c.deducible),
-            )
-            for c in cot.coberturas
-        ],
+        perfil_riesgo=perfil,
         vigencia_cotizacion=VigenciaOut(desde=cot.vigencia.desde, hasta=cot.vigencia.hasta),
         creada_en=cot.creada_en,
     )
@@ -75,9 +91,27 @@ def _a_salida(cot: Cotizacion) -> CotizacionOut:
 @router.post(
     "/cotizaciones",
     response_model=CotizacionOut,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
-    tags=["Cotización"],
 )
-async def crear_cotizacion(payload: SolicitudCotizacionIn, service: ServiceDep) -> CotizacionOut:
-    cotizacion = await service.crear_cotizacion(_a_dominio(payload))
+async def crear_cotizacion(
+    payload: SolicitudCotizacionIn,
+    cliente_id: ClienteId,
+    service: ServiceDep,
+) -> CotizacionOut:
+    cotizacion = await service.crear_cotizacion(_a_dominio(cliente_id, payload))
+    return _a_salida(cotizacion)
+
+
+@router.get(
+    "/cotizaciones/{cotizacion_id}",
+    response_model=CotizacionOut,
+    response_model_exclude_none=True,
+)
+async def obtener_cotizacion(
+    cotizacion_id: str,
+    cliente_id: ClienteId,
+    service: ServiceDep,
+) -> CotizacionOut:
+    cotizacion = await service.obtener_cotizacion(cotizacion_id, cliente_id)
     return _a_salida(cotizacion)

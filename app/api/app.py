@@ -23,7 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO)
 
     deps = build_dependencias(settings)
-    service = CotizacionService(deps.proveedor, deps.repositorio)
+    service = CotizacionService(deps.perfilador, deps.repositorio)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):

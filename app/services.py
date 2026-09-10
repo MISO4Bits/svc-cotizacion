@@ -8,62 +8,98 @@ from uuid import uuid4
 
 from app.domain import (
     Cotizacion,
-    Dispositivo,
+    DatosCredito,
+    DependenciaNoDisponible,
     EstadoCotizacion,
-    PrimaDesglose,
+    Moneda,
+    Oferta,
+    PerfilRiesgo,
     SolicitudCotizacion,
-    Tarifa,
     Vigencia,
 )
-from app.ports import CotizacionRepositoryPort, ProveedorTarifaPort
+from app.ports import CotizacionRepositoryPort, PerfilRiesgoPort
 
-VIGENCIA_COTIZACION = timedelta(days=15)
-_CENTAVO = Decimal("0.01")
+VIGENCIA_COTIZACION = timedelta(days=30)
 
-
-def _factor_antiguedad(meses: int) -> Decimal:
-    if meses <= 12:
-        return Decimal("1.0")
-    if meses <= 24:
-        return Decimal("1.25")
-    return Decimal("1.5")
+_PESO = Decimal("1")
+# TODO: la tarifa base vendrá de ReglasRatingPort (Productos y Configuración) — ver diseño de David.
+_TASA_MENSUAL_BASE = Decimal("0.00035")  # proporción de la suma asegurada, por mes
 
 
-def calcular_prima(dispositivo: Dispositivo, tarifa: Tarifa) -> PrimaDesglose:
-    """Rating simple para protección de dispositivos.
+def _factor_edad(edad: int) -> Decimal:
+    if edad <= 35:
+        return Decimal("1.00")
+    if edad <= 50:
+        return Decimal("1.40")
+    return Decimal("1.90")
 
-    prima_pura = valor_asegurado * tasa_base_anual * factor_por_antiguedad.
+
+def calcular_prima_base(datos: DatosCredito) -> Decimal:
+    """Prima mensual con tarifa estándar (sin ajuste por perfil).
+
+    suma_asegurada = saldo insoluto (protección de la deuda).
     """
-    base = dispositivo.valor_asegurado * tarifa.tasa_base_anual
-    prima_pura = (base * _factor_antiguedad(dispositivo.antiguedad_meses)).quantize(_CENTAVO)
-    gastos = (prima_pura * tarifa.recargo_gastos).quantize(_CENTAVO)
-    impuestos = ((prima_pura + gastos) * tarifa.tasa_impuesto).quantize(_CENTAVO)
-    total = prima_pura + gastos + impuestos
-    return PrimaDesglose(prima_pura, gastos, impuestos, total)
+    ajustada = datos.saldo_insoluto * _TASA_MENSUAL_BASE * _factor_edad(datos.edad)
+    return ajustada.quantize(_PESO)
 
 
 class CotizacionService:
     def __init__(
         self,
-        proveedor: ProveedorTarifaPort,
+        perfilador: PerfilRiesgoPort,
         repositorio: CotizacionRepositoryPort,
     ) -> None:
-        self._proveedor = proveedor
+        self._perfilador = perfilador
         self._repositorio = repositorio
 
     async def crear_cotizacion(self, solicitud: SolicitudCotizacion) -> Cotizacion:
-        tarifa = await self._proveedor.obtener_tarifa(solicitud.ramo)
-        prima = calcular_prima(solicitud.dispositivo, tarifa)
+        datos = solicitud.datos_credito
+        prima_base = calcular_prima_base(datos)
+
+        try:
+            perfil = await self._perfilador.perfilar(solicitud)
+        except DependenciaNoDisponible:
+            perfil = None
+
+        oferta = self._armar_oferta(datos, prima_base, perfil)
 
         ahora = datetime.now(UTC)
         cotizacion = Cotizacion(
             id=str(uuid4()),
+            cliente_id=solicitud.cliente_id,
             estado=EstadoCotizacion.VIGENTE,
-            ramo=solicitud.ramo,
-            prima=prima,
-            coberturas=tarifa.coberturas,
+            oferta=oferta,
+            perfil_riesgo=perfil,
             vigencia=Vigencia(ahora, ahora + VIGENCIA_COTIZACION),
             creada_en=ahora,
         )
         await self._repositorio.guardar(cotizacion)
         return cotizacion
+
+    async def obtener_cotizacion(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
+        return await self._repositorio.obtener(cotizacion_id, cliente_id)
+
+    @staticmethod
+    def _armar_oferta(
+        datos: DatosCredito, prima_base: Decimal, perfil: PerfilRiesgo | None
+    ) -> Oferta:
+        if perfil is None:
+            return Oferta(
+                prima_mensual=prima_base,
+                prima_base_mensual=prima_base,
+                suma_asegurada=datos.saldo_insoluto,
+                cobertura_meses=datos.plazo_meses,
+                moneda=Moneda.COP,
+                personalizado=False,
+                fuentes_no_disponibles=("perfilamiento",),
+            )
+        prima = (prima_base * perfil.factor_ajuste).quantize(_PESO)
+        return Oferta(
+            prima_mensual=prima,
+            prima_base_mensual=prima_base,
+            suma_asegurada=datos.saldo_insoluto,
+            cobertura_meses=datos.plazo_meses,
+            moneda=Moneda.COP,
+            personalizado=True,
+            fuentes_no_disponibles=perfil.fuentes_no_disponibles,
+        )

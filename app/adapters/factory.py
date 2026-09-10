@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.adapters.fakes import FakeCotizacionRepository, FakeProveedorTarifa
+from app.adapters.fakes import FakeCotizacionRepository, FakePerfilRiesgo
 from app.config import Settings
-from app.ports import CotizacionRepositoryPort, ProveedorTarifaPort
+from app.ports import CotizacionRepositoryPort, PerfilRiesgoPort
 
 
 @dataclass
 class Dependencias:
-    proveedor: ProveedorTarifaPort
+    perfilador: PerfilRiesgoPort
     repositorio: CotizacionRepositoryPort
 
     async def aclose(self) -> None:
-        for adaptador in (self.proveedor, self.repositorio):
+        for adaptador in (self.perfilador, self.repositorio):
             cerrar = getattr(adaptador, "aclose", None)
             if cerrar is not None:
                 await cerrar()
@@ -24,7 +24,7 @@ class Dependencias:
 def build_dependencias(settings: Settings) -> Dependencias:
     if settings.adapters == "fake":
         return Dependencias(
-            proveedor=FakeProveedorTarifa(),
+            perfilador=FakePerfilRiesgo(),
             repositorio=FakeCotizacionRepository(),
         )
     raise ValueError(f"adapters no soportado: {settings.adapters}")

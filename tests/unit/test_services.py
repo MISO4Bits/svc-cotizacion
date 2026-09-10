@@ -5,102 +5,106 @@ from decimal import Decimal
 import pytest
 
 from app.domain import (
-    Canal,
-    Cobertura,
+    ActividadFisica,
     Cotizacion,
+    CuestionarioHabitos,
+    DatosCredito,
     DependenciaNoDisponible,
-    Dispositivo,
-    EstadoCotizacion,
-    Ramo,
-    Solicitante,
+    EfectoFactor,
+    FactorRiesgo,
+    NivelRiesgo,
+    PerfilRiesgo,
+    RecursoNoEncontrado,
     SolicitudCotizacion,
-    Tarifa,
-    TipoCanal,
-    TipoDispositivo,
 )
-from app.services import CotizacionService, calcular_prima
+from app.services import CotizacionService, calcular_prima_base
 
 
-class _ProveedorOk:
-    async def obtener_tarifa(self, ramo: Ramo) -> Tarifa:
-        return Tarifa(
-            ramo=Ramo.PROTECCION_DISPOSITIVO,
-            tasa_base_anual=Decimal("0.04"),
-            recargo_gastos=Decimal("0.15"),
-            tasa_impuesto=Decimal("0.19"),
-            coberturas=(Cobertura("ROBO", "Robo y hurto", Decimal("3000000"), Decimal("150000")),),
+def _datos(edad: int = 38, saldo: str = "140000000", plazo: int = 240) -> DatosCredito:
+    return DatosCredito(
+        valor_credito=Decimal("150000000"),
+        plazo_meses=plazo,
+        edad=edad,
+        entidad_acreedora="Banco X",
+        saldo_insoluto=Decimal(saldo),
+    )
+
+
+def _solicitud(**kw) -> SolicitudCotizacion:
+    return SolicitudCotizacion(
+        cliente_id="cli-1",
+        datos_credito=_datos(**kw),
+        cuestionario_habitos=CuestionarioHabitos(
+            consume_tabaco=False,
+            actividad_fisica=ActividadFisica.OCASIONAL,
+            condiciones_preexistentes=False,
+            dependientes_economicos=1,
+        ),
+    )
+
+
+class _PerfilOk:
+    async def perfilar(self, solicitud: SolicitudCotizacion) -> PerfilRiesgo:
+        return PerfilRiesgo(
+            nivel_riesgo=NivelRiesgo.BAJO,
+            factores=(FactorRiesgo("Actividad física regular", EfectoFactor.POSITIVO),),
+            factor_ajuste=Decimal("0.90"),
         )
 
 
-class _ProveedorCaido:
-    async def obtener_tarifa(self, ramo: Ramo) -> Tarifa:
-        raise DependenciaNoDisponible("proveedor de tarifa no responde")
+class _PerfilCaido:
+    async def perfilar(self, solicitud: SolicitudCotizacion) -> PerfilRiesgo:
+        raise DependenciaNoDisponible("Perfilamiento no responde")
 
 
-class _RepoEnMemoria:
+class _Repo:
     def __init__(self) -> None:
         self.guardadas: list[Cotizacion] = []
 
     async def guardar(self, cotizacion: Cotizacion) -> None:
         self.guardadas.append(cotizacion)
 
-    async def obtener(self, cotizacion_id: str) -> Cotizacion:
+    async def obtener(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
         for c in self.guardadas:
-            if c.id == cotizacion_id:
+            if c.id == cotizacion_id and c.cliente_id == cliente_id:
                 return c
-        raise KeyError(cotizacion_id)
+        raise RecursoNoEncontrado("no encontrada")
 
 
-def _solicitud() -> SolicitudCotizacion:
-    return SolicitudCotizacion(
-        ramo=Ramo.PROTECCION_DISPOSITIVO,
-        canal=Canal(TipoCanal.SOCIO, "banco-x"),
-        dispositivo=Dispositivo(TipoDispositivo.CELULAR, Decimal("3000000"), 6),
-        solicitante=Solicitante(30, "CO"),
+def test_prima_base_escala_con_la_edad():
+    assert calcular_prima_base(_datos(edad=30)) < calcular_prima_base(_datos(edad=45))
+    assert calcular_prima_base(_datos(edad=45)) < calcular_prima_base(_datos(edad=60))
+
+
+def test_prima_base_escala_con_el_saldo():
+    assert calcular_prima_base(_datos(saldo="100000000")) < calcular_prima_base(
+        _datos(saldo="200000000")
     )
 
 
-async def test_crear_cotizacion_camino_feliz():
-    repo = _RepoEnMemoria()
-    service = CotizacionService(_ProveedorOk(), repo)
+async def test_crear_cotizacion_personalizada():
+    repo = _Repo()
+    cot = await CotizacionService(_PerfilOk(), repo).crear_cotizacion(_solicitud())
 
-    cot = await service.crear_cotizacion(_solicitud())
-
-    assert cot.estado == EstadoCotizacion.VIGENTE
-    assert cot.ramo == Ramo.PROTECCION_DISPOSITIVO
-    assert cot.prima.total == cot.prima.prima_pura + cot.prima.gastos + cot.prima.impuestos
-    assert len(cot.coberturas) == 1
-    assert cot.vigencia.hasta > cot.vigencia.desde
+    assert cot.oferta.personalizado is True
+    assert cot.perfil_riesgo is not None
+    assert cot.oferta.prima_mensual < cot.oferta.prima_base_mensual
     assert repo.guardadas == [cot]
 
 
-async def test_crear_cotizacion_propaga_falla_del_proveedor():
-    service = CotizacionService(_ProveedorCaido(), _RepoEnMemoria())
-    with pytest.raises(DependenciaNoDisponible):
-        await service.crear_cotizacion(_solicitud())
+async def test_crear_cotizacion_cae_a_tarifa_estandar_si_perfilamiento_falla():
+    cot = await CotizacionService(_PerfilCaido(), _Repo()).crear_cotizacion(_solicitud())
+
+    assert cot.oferta.personalizado is False
+    assert cot.perfil_riesgo is None
+    assert cot.oferta.prima_mensual == cot.oferta.prima_base_mensual
+    assert cot.oferta.fuentes_no_disponibles == ("perfilamiento",)
 
 
-def test_calcular_prima_dispositivo_nuevo():
-    disp = Dispositivo(TipoDispositivo.CELULAR, Decimal("2000000"), 6)
-    tarifa = Tarifa(
-        ramo=Ramo.PROTECCION_DISPOSITIVO,
-        tasa_base_anual=Decimal("0.05"),
-        recargo_gastos=Decimal("0.10"),
-        tasa_impuesto=Decimal("0.19"),
-        coberturas=(),
-    )
-    prima = calcular_prima(disp, tarifa)
-    assert prima.prima_pura == Decimal("100000.00")
-    assert prima.gastos == Decimal("10000.00")
-    assert prima.impuestos == Decimal("20900.00")
-    assert prima.total == Decimal("130900.00")
+async def test_obtener_cotizacion():
+    service = CotizacionService(_PerfilOk(), _Repo())
+    creada = await service.crear_cotizacion(_solicitud())
 
-
-def test_factor_antiguedad_escalonado():
-    tarifa = Tarifa(Ramo.PROTECCION_DISPOSITIVO, Decimal("0.04"), Decimal("0"), Decimal("0"), ())
-
-    def pura(meses: int) -> Decimal:
-        disp = Dispositivo(TipoDispositivo.PORTATIL, Decimal("1000000"), meses)
-        return calcular_prima(disp, tarifa).prima_pura
-
-    assert pura(6) < pura(18) < pura(30)
+    assert await service.obtener_cotizacion(creada.id, "cli-1") == creada
+    with pytest.raises(RecursoNoEncontrado):
+        await service.obtener_cotizacion(creada.id, "otro")

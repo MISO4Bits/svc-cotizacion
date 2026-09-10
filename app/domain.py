@@ -1,9 +1,11 @@
 """Modelo de dominio del servicio de Cotización.
 
 DTO de dominio (dataclasses congeladas, sin framework) + errores de aplicación.
-La validación de JSON de entrada vive en ``api/schemas.py`` (Pydantic); las reglas
-del cálculo viven en ``services.py``. Acá solo van los tipos del dominio y sus
-invariantes básicas.
+La validación de JSON de entrada vive en ``api/schemas.py`` (Pydantic); acá solo
+van los tipos del dominio y sus invariantes de consistencia.
+
+Modelo: seguro de vida sobre crédito hipotecario (BITS-95). Diseño de referencia:
+página "Cotización y Rating" de David (Confluence).
 """
 
 from __future__ import annotations
@@ -12,6 +14,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+
+PRODUCTO = "VIDA_HIPOTECARIO"
+
 
 # --- errores de aplicación (se traducen a RFC 9457 en la capa API) ---
 
@@ -48,110 +53,100 @@ class DependenciaNoDisponible(CotError):
 # --- enumeraciones del dominio ---
 
 
-class Ramo(StrEnum):
-    PROTECCION_DISPOSITIVO = "PROTECCION_DISPOSITIVO"
+class ActividadFisica(StrEnum):
+    NUNCA = "NUNCA"
+    OCASIONAL = "OCASIONAL"
+    REGULAR = "REGULAR"
 
 
-class TipoCanal(StrEnum):
-    SOCIO = "SOCIO"
-    ASESOR = "ASESOR"
+class NivelRiesgo(StrEnum):
+    BAJO = "BAJO"
+    MEDIO = "MEDIO"
+    ALTO = "ALTO"
 
 
-class TipoDispositivo(StrEnum):
-    CELULAR = "CELULAR"
-    PORTATIL = "PORTATIL"
-    TABLET = "TABLET"
+class EstadoCotizacion(StrEnum):
+    VIGENTE = "VIGENTE"
+    EXPIRADA = "EXPIRADA"
+
+
+class EfectoFactor(StrEnum):
+    POSITIVO = "POSITIVO"
+    NEGATIVO = "NEGATIVO"
 
 
 class Moneda(StrEnum):
     COP = "COP"
 
 
-class EstadoCotizacion(StrEnum):
-    VIGENTE = "VIGENTE"
-    EXPIRADA = "EXPIRADA"
-    ACEPTADA = "ACEPTADA"
-    RECHAZADA = "RECHAZADA"
-
-
 # --- datos de entrada ---
 
 
 @dataclass(frozen=True)
-class Canal:
-    tipo: TipoCanal
-    socio_id: str
-
-
-@dataclass(frozen=True)
-class Dispositivo:
-    tipo: TipoDispositivo
-    valor_asegurado: Decimal
-    antiguedad_meses: int
-
-
-@dataclass(frozen=True)
-class Solicitante:
+class DatosCredito:
+    valor_credito: Decimal
+    plazo_meses: int
     edad: int
-    pais: str
+    entidad_acreedora: str
+    saldo_insoluto: Decimal
+
+
+@dataclass(frozen=True)
+class CuestionarioHabitos:
+    consume_tabaco: bool
+    actividad_fisica: ActividadFisica
+    condiciones_preexistentes: bool
+    dependientes_economicos: int
 
 
 @dataclass(frozen=True)
 class SolicitudCotizacion:
-    ramo: Ramo
-    canal: Canal
-    dispositivo: Dispositivo
-    solicitante: Solicitante
+    cliente_id: str
+    datos_credito: DatosCredito
+    cuestionario_habitos: CuestionarioHabitos
+
+
+# --- perfil de riesgo (lo devuelve PerfilRiesgoPort) ---
+
+
+@dataclass(frozen=True)
+class FactorRiesgo:
+    descripcion: str
+    efecto: EfectoFactor
+    peso_relativo: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class PerfilRiesgo:
+    nivel_riesgo: NivelRiesgo
+    factores: tuple[FactorRiesgo, ...]
+    factor_ajuste: Decimal  # multiplicador que el rating aplica a la prima base
+    fuentes_no_disponibles: tuple[str, ...] = ()
 
 
 # --- resultado ---
 
 
 @dataclass(frozen=True)
-class PrimaDesglose:
-    prima_pura: Decimal
-    gastos: Decimal
-    impuestos: Decimal
-    total: Decimal
-    moneda: Moneda = Moneda.COP
+class Oferta:
+    prima_mensual: Decimal
+    prima_base_mensual: Decimal
+    suma_asegurada: Decimal
+    cobertura_meses: int
+    moneda: Moneda
+    personalizado: bool
+    fuentes_no_disponibles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for nombre, valor in (
-            ("prima_pura", self.prima_pura),
-            ("gastos", self.gastos),
-            ("impuestos", self.impuestos),
+            ("prima_mensual", self.prima_mensual),
+            ("prima_base_mensual", self.prima_base_mensual),
+            ("suma_asegurada", self.suma_asegurada),
         ):
             if valor < 0:
                 raise ReglaNegocio(f"{nombre} no puede ser negativo")
-        suma = self.prima_pura + self.gastos + self.impuestos
-        if self.total != suma:
-            raise ReglaNegocio(
-                f"el total de la prima ({self.total}) no coincide "
-                f"con la suma de sus partes ({suma})"
-            )
-
-
-@dataclass(frozen=True)
-class Cobertura:
-    codigo: str
-    nombre: str
-    suma_asegurada: Decimal
-    deducible: Decimal
-
-
-@dataclass(frozen=True)
-class Tarifa:
-    """Factores de tarifa vigentes para un ramo, provistos por la dependencia de tarifación.
-
-    El motor de rating (en ``services.py``) combina la solicitud con esta tarifa
-    para producir la ``PrimaDesglose`` y las coberturas de la cotización.
-    """
-
-    ramo: Ramo
-    tasa_base_anual: Decimal  # proporción del valor asegurado, por año de vigencia
-    recargo_gastos: Decimal  # proporción de gastos sobre la prima pura
-    tasa_impuesto: Decimal  # proporción de impuesto sobre (prima pura + gastos)
-    coberturas: tuple[Cobertura, ...]
+        if not self.personalizado and self.prima_mensual != self.prima_base_mensual:
+            raise ReglaNegocio("sin personalización, la prima debe ser igual a la prima base")
 
 
 @dataclass(frozen=True)
@@ -167,13 +162,16 @@ class Vigencia:
 @dataclass(frozen=True)
 class Cotizacion:
     id: str
+    cliente_id: str
     estado: EstadoCotizacion
-    ramo: Ramo
-    prima: PrimaDesglose
-    coberturas: tuple[Cobertura, ...]
+    oferta: Oferta
+    perfil_riesgo: PerfilRiesgo | None
     vigencia: Vigencia
     creada_en: datetime
+    producto: str = PRODUCTO
 
     def __post_init__(self) -> None:
-        if not self.coberturas:
-            raise ReglaNegocio("una cotización debe tener al menos una cobertura")
+        if self.oferta.personalizado and self.perfil_riesgo is None:
+            raise ReglaNegocio("una cotización personalizada debe incluir el perfil de riesgo")
+        if not self.oferta.personalizado and self.perfil_riesgo is not None:
+            raise ReglaNegocio("una cotización no personalizada no debe incluir perfil de riesgo")
