@@ -1,8 +1,4 @@
-"""Pruebas de contrato: estructura de ``openapi/openapi.yaml`` y que el servicio lo publica.
-
-La verificación estricta "el código expone exactamente las operaciones del contrato"
-se completa en B5, cuando exista la ruta ``POST /v1/cotizaciones``.
-"""
+"""Pruebas de contrato: el código cumple ``openapi/openapi.yaml``."""
 
 from __future__ import annotations
 
@@ -14,6 +10,13 @@ _METODOS = {"get", "post", "put", "patch", "delete"}
 _REF = re.compile(r"#/components/schemas/([A-Za-z0-9_]+)")
 _PATH_PARAM = re.compile(r"\{[^}]+\}")
 
+SOLICITUD_VALIDA = {
+    "ramo": "PROTECCION_DISPOSITIVO",
+    "canal": {"tipo": "SOCIO", "socioId": "banco-x"},
+    "dispositivo": {"tipo": "CELULAR", "valorAsegurado": 3000000, "antiguedadMeses": 8},
+    "solicitante": {"edad": 28, "pais": "CO"},
+}
+
 
 def _ops(paths: dict) -> set[tuple[str, str]]:
     return {
@@ -24,17 +27,20 @@ def _ops(paths: dict) -> set[tuple[str, str]]:
     }
 
 
+def _validar(spec: dict, ref: str, instancia) -> None:
+    schema = {"$ref": f"#/components/schemas/{ref}", "components": spec["components"]}
+    errores = sorted(Draft202012Validator(schema).iter_errors(instancia), key=str)
+    assert not errores, [e.message for e in errores]
+
+
 def test_spec_tiene_estructura_openapi(openapi_spec):
     assert openapi_spec["openapi"].startswith("3.")
-    assert "/v1/cotizaciones" in openapi_spec["paths"]
     assert "post" in openapi_spec["paths"]["/v1/cotizaciones"]
 
 
 def test_todas_las_referencias_de_schema_existen(openapi_spec):
     definidos = set(openapi_spec["components"]["schemas"])
-    referenciados = set(_REF.findall(str(openapi_spec)))
-    faltan = referenciados - definidos
-    assert not faltan, f"$ref sin definir: {faltan}"
+    assert not set(_REF.findall(str(openapi_spec))) - definidos
 
 
 def test_cada_schema_es_json_schema_valido(openapi_spec):
@@ -42,13 +48,24 @@ def test_cada_schema_es_json_schema_valido(openapi_spec):
         Draft202012Validator.check_schema(schema)
 
 
-def test_el_codigo_no_expone_operaciones_fuera_del_contrato(app, openapi_spec):
-    # En B5 esto pasa a ser igualdad estricta (==).
-    assert _ops(app.openapi()["paths"]) <= _ops(openapi_spec["paths"])
+def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
+    assert _ops(app.openapi()["paths"]) == _ops(openapi_spec["paths"])
+
+
+async def test_la_respuesta_cumple_el_contrato(client, openapi_spec):
+    resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA)
+    assert resp.status_code == 201
+    _validar(openapi_spec, "Cotizacion", resp.json())
+
+
+async def test_el_error_cumple_problem_details(client, openapi_spec):
+    resp = await client.post("/v1/cotizaciones", json={"ramo": "PROTECCION_DISPOSITIVO"})
+    assert resp.status_code == 400
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    _validar(openapi_spec, "Problema", resp.json())
 
 
 async def test_el_servicio_publica_el_contrato(client):
     resp = await client.get("/openapi.yaml")
     assert resp.status_code == 200
-    assert "openapi" in resp.text
     assert "cotizaciones" in resp.text
