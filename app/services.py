@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
@@ -19,6 +20,7 @@ from app.domain import (
 )
 from app.ports import CotizacionRepositoryPort, PerfilRiesgoPort
 
+logger = logging.getLogger("cotizacion.services")
 VIGENCIA_COTIZACION = timedelta(days=30)
 
 _PESO = Decimal("1")
@@ -59,6 +61,7 @@ class CotizacionService:
         try:
             perfil = await self._perfilador.perfilar(solicitud)
         except DependenciaNoDisponible:
+            logger.warning("perfilamiento no disponible, cae a tarifa estandar")
             perfil = None
 
         oferta = self._armar_oferta(datos, prima_base, perfil)
