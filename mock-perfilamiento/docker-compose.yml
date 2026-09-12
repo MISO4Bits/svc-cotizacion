@@ -1,0 +1,31 @@
+# Montaje local para EXP-02: svc-cotizacion (modo http) + WireMock como Perfilamiento.
+#
+#   docker compose -f mock-perfilamiento/docker-compose.yml up --build
+#
+# svc-cotizacion  -> http://localhost:8080   (POST /cotizaciones)
+# WireMock        -> http://localhost:8089   (POST /perfiles, admin en /__admin)
+
+services:
+  wiremock:
+    image: wiremock/wiremock:3.10.0
+    ports:
+      - "8089:8080"
+    volumes:
+      - ./mappings:/home/wiremock/mappings:ro
+    command: ["--verbose", "--disable-banner"]
+
+  svc-cotizacion:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      COT_ADAPTERS: http
+      COT_PERFILAMIENTO_BASE_URL: http://wiremock:8080
+      COT_HTTP_TIMEOUT_SECONDS: "0.7"
+      COT_HTTP_RETRIES: "0"
+      COT_CIRCUIT_FAIL_MAX: "5"
+      COT_CIRCUIT_RESET_TIMEOUT_SECONDS: "30"
+    depends_on:
+      - wiremock

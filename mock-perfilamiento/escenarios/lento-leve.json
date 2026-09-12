@@ -1,0 +1,15 @@
+{
+  "priority": 1,
+  "request": { "method": "POST", "urlPath": "/perfiles" },
+  "response": {
+    "status": 200,
+    "fixedDelayMilliseconds": 300,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "nivelRiesgo": "MEDIO",
+      "factorAjuste": 1.0,
+      "factores": [],
+      "fuentesNoDisponibles": []
+    }
+  }
+}

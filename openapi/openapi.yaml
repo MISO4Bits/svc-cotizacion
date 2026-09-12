@@ -30,7 +30,7 @@ info:
     name: Uso académico 4Bits
 
 servers:
-  - url: https://api.dev.solventa4bits.com/cotizacion
+  - url: https://dev.solventa4bits.com/cotizacion
     description: Entorno de desarrollo
 
 tags:

@@ -13,9 +13,15 @@ class Settings(BaseSettings):
     service_name: str = "svc-cotizacion"
     environment: str = "local"
 
-    # Adaptadores de salida: "fake" (todo en memoria) | "sql" (persistencia real) | "http".
-    # Cada modo se implementa en su fase correspondiente de la ruta de construcción.
+    # Adaptadores de salida: "fake" (todo en memoria) | "http" (Perfilamiento real).
     adapters: str = "fake"
+
+    # Modo "http": adaptador resiliente hacia Perfilamiento (EXP-02).
+    perfilamiento_base_url: str = "http://localhost:8089"
+    http_timeout_seconds: float = 0.7  # timeout duro por llamada (BITS-80 / EXP-02)
+    http_retries: int = 0
+    circuit_fail_max: int = 5
+    circuit_reset_timeout_seconds: int = 30
 
 
 @lru_cache

@@ -9,6 +9,8 @@ __pycache__
 .coverage
 htmlcov
 tests
+mock-perfilamiento
+k6
 .env
 Dockerfile
 .dockerignore
