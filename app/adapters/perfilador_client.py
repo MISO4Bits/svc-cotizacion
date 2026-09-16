@@ -16,7 +16,6 @@ tarifa estándar (BITS-105 AC-2).
 from __future__ import annotations
 
 import logging
-
 from decimal import Decimal
 
 from app.domain import (
@@ -29,8 +28,8 @@ from app.domain import (
 )
 from app.resilience import ResilientHttpClient
 
-
 logger = logging.getLogger("cotizacion.adapters.perfilador")
+
 
 class PerfiladorClient:
     def __init__(self, http: ResilientHttpClient) -> None:

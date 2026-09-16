@@ -37,6 +37,8 @@ _TRANSIENT_EXCEPTIONS = (
 
 
 logger = logging.getLogger("cotizacion.resilience")
+
+
 class _Transient(Exception):
     """Fallo transitorio: se puede reintentar."""
 

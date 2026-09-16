@@ -58,7 +58,7 @@ class CotizacionService:
     async def crear_cotizacion(self, solicitud: SolicitudCotizacion) -> Cotizacion:
         datos = solicitud.datos_credito
         prima_base = calcular_prima_base(datos)
-    
+
         logger.info(
             "solicitud de cotizacion recibida",
             extra={"cliente_id": solicitud.cliente_id},
