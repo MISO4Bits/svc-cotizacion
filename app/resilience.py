@@ -75,7 +75,7 @@ class AsyncCircuitBreaker:
 
     def _registrar_exito(self) -> None:
         if self._state != "closed":
-            logger.info("circuito cerrado", extra={"dependencia": self.name})
+            logger.info("circuito cerrado dependencia=%s", self.name)
         self._failures = 0
         self._state = "closed"
 
@@ -84,10 +84,7 @@ class AsyncCircuitBreaker:
         if self._failures >= self._fail_max:
             self._state = "open"
             self._opened_at = time.monotonic()
-            logger.warning(
-                "circuito abierto",
-                extra={"dependencia": self.name, "fallos": self._failures},
-            )
+            logger.warning("circuito abierto dependencia=%s fallos=%s", self.name, self._failures)
 
 
 def build_breaker(name: str, *, fail_max: int, reset_timeout: int) -> AsyncCircuitBreaker:
@@ -132,8 +129,7 @@ class ResilientHttpClient:
             wait=wait_exponential_jitter(initial=0.05, max=0.5),
             retry=retry_if_exception_type(_Transient),
             before_sleep=lambda estado: logger.warning(
-                "reintentando llamada a dependencia",
-                extra={"intento": estado.attempt_number},
+                "reintentando llamada a dependencia intento=%s", estado.attempt_number
             ),
         )
         try:
