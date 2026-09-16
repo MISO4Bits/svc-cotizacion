@@ -15,6 +15,7 @@ tarifa estándar (BITS-105 AC-2).
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from app.domain import (
@@ -26,6 +27,8 @@ from app.domain import (
     SolicitudCotizacion,
 )
 from app.resilience import ResilientHttpClient
+
+logger = logging.getLogger("cotizacion.adapters.perfilador")
 
 
 class PerfiladorClient:
@@ -56,6 +59,10 @@ class PerfiladorClient:
 
         resp = await self._http.request("POST", "/perfiles", json=cuerpo)
         if resp.status_code != 200:
+            logger.warning(
+                "perfilamiento respondio con error",
+                extra={"status_code": resp.status_code},
+            )
             raise DependenciaNoDisponible(f"Perfilamiento respondió {resp.status_code}")
         return _a_perfil(resp.json())
 

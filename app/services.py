@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
@@ -58,11 +59,22 @@ class CotizacionService:
         datos = solicitud.datos_credito
         prima_base = calcular_prima_base(datos)
 
+        logger.info(
+            "solicitud de cotizacion recibida",
+            extra={"cliente_id": solicitud.cliente_id},
+        )
+
+        inicio = time.perf_counter()
         try:
             perfil = await self._perfilador.perfilar(solicitud)
         except DependenciaNoDisponible:
             logger.warning("perfilamiento no disponible, cae a tarifa estandar")
             perfil = None
+        duracion_ms = round((time.perf_counter() - inicio) * 1000, 1)
+        logger.info(
+            "perfilamiento resuelto",
+            extra={"duracion_ms": duracion_ms, "disponible": perfil is not None},
+        )
 
         oferta = self._armar_oferta(datos, prima_base, perfil)
 
@@ -77,9 +89,20 @@ class CotizacionService:
             creada_en=ahora,
         )
         await self._repositorio.guardar(cotizacion)
+        logger.info(
+            "cotizacion creada",
+            extra={
+                "cotizacion_id": cotizacion.id,
+                "personalizado": oferta.personalizado,
+            },
+        )
         return cotizacion
 
     async def obtener_cotizacion(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
+        logger.info(
+            "consulta de cotizacion",
+            extra={"cotizacion_id": cotizacion_id, "cliente_id": cliente_id},
+        )
         return await self._repositorio.obtener(cotizacion_id, cliente_id)
 
     @staticmethod

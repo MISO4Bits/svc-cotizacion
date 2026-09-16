@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request, status
@@ -22,6 +23,8 @@ from app.domain import (
 from app.services import CotizacionService
 
 router = APIRouter(tags=["Cotización"])
+
+logger = logging.getLogger("cotizacion.api")
 
 ClienteId = Annotated[str, Header(alias="X-Cliente-Id", min_length=1, max_length=64)]
 
@@ -99,6 +102,7 @@ async def crear_cotizacion(
     cliente_id: ClienteId,
     service: ServiceDep,
 ) -> CotizacionOut:
+    logger.info("solicitud entrante POST /cotizaciones", extra={"cliente_id": cliente_id})
     cotizacion = await service.crear_cotizacion(_a_dominio(cliente_id, payload))
     return _a_salida(cotizacion)
 
@@ -113,5 +117,9 @@ async def obtener_cotizacion(
     cliente_id: ClienteId,
     service: ServiceDep,
 ) -> CotizacionOut:
+    logger.info(
+        "solicitud entrante GET /cotizaciones/{id}",
+        extra={"cliente_id": cliente_id, "cotizacion_id": cotizacion_id},
+    )
     cotizacion = await service.obtener_cotizacion(cotizacion_id, cliente_id)
     return _a_salida(cotizacion)
