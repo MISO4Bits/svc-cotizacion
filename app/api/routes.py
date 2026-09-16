@@ -20,6 +20,7 @@ from app.domain import (
     DatosCredito,
     SolicitudCotizacion,
 )
+from app.logging_utils import sanear_para_log
 from app.services import CotizacionService
 
 router = APIRouter(tags=["Cotización"])
@@ -102,7 +103,7 @@ async def crear_cotizacion(
     cliente_id: ClienteId,
     service: ServiceDep,
 ) -> CotizacionOut:
-    logger.info("solicitud entrante POST /cotizaciones", extra={"cliente_id": cliente_id})
+    logger.info("POST /cotizaciones: solicitud recibida cliente_id=%s", sanear_para_log(cliente_id))
     cotizacion = await service.crear_cotizacion(_a_dominio(cliente_id, payload))
     return _a_salida(cotizacion)
 
@@ -118,8 +119,9 @@ async def obtener_cotizacion(
     service: ServiceDep,
 ) -> CotizacionOut:
     logger.info(
-        "solicitud entrante GET /cotizaciones/{id}",
-        extra={"cliente_id": cliente_id, "cotizacion_id": cotizacion_id},
+        "GET /cotizaciones/%s: solicitud recibida cliente_id=%s",
+        sanear_para_log(cotizacion_id),
+        sanear_para_log(cliente_id),
     )
     cotizacion = await service.obtener_cotizacion(cotizacion_id, cliente_id)
     return _a_salida(cotizacion)

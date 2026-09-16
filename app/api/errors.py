@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.domain import CotError
+from app.logging_utils import sanear_para_log
 
+logger = logging.getLogger("cotizacion.api")
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 
 
@@ -19,6 +23,11 @@ def problema(
     instance: str | None = None,
     errores: list[dict] | None = None,
 ) -> JSONResponse:
+    # Punto único de log para todos los handlers de abajo — todos pasan
+    # por aquí con su instance=str(request.url), que puede traer \r\n
+    # inyectados por el cliente (CWE-117) y hay que sanear antes de
+    # escribirlo en un log.
+    logger.warning("%s (%s): %s", title, status, sanear_para_log(instance or ""))
     body: dict = {"type": "about:blank", "title": title, "status": status}
     if detail:
         body["detail"] = detail

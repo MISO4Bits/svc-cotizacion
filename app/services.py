@@ -19,6 +19,7 @@ from app.domain import (
     SolicitudCotizacion,
     Vigencia,
 )
+from app.logging_utils import sanear_para_log
 from app.ports import CotizacionRepositoryPort, PerfilRiesgoPort
 
 logger = logging.getLogger("cotizacion.services")
@@ -60,20 +61,21 @@ class CotizacionService:
         prima_base = calcular_prima_base(datos)
 
         logger.info(
-            "solicitud de cotizacion recibida",
-            extra={"cliente_id": solicitud.cliente_id},
+            "crear_cotizacion: solicitud recibida cliente_id=%s",
+            sanear_para_log(solicitud.cliente_id),
         )
 
         inicio = time.perf_counter()
         try:
             perfil = await self._perfilador.perfilar(solicitud)
         except DependenciaNoDisponible:
-            logger.warning("perfilamiento no disponible, cae a tarifa estandar")
+            logger.warning("crear_cotizacion: perfilamiento no disponible, cae a tarifa estandar")
             perfil = None
         duracion_ms = round((time.perf_counter() - inicio) * 1000, 1)
         logger.info(
-            "perfilamiento resuelto",
-            extra={"duracion_ms": duracion_ms, "disponible": perfil is not None},
+            "crear_cotizacion: perfilamiento resuelto en %s ms disponible=%s",
+            duracion_ms,
+            perfil is not None,
         )
 
         oferta = self._armar_oferta(datos, prima_base, perfil)
@@ -90,18 +92,17 @@ class CotizacionService:
         )
         await self._repositorio.guardar(cotizacion)
         logger.info(
-            "cotizacion creada",
-            extra={
-                "cotizacion_id": cotizacion.id,
-                "personalizado": oferta.personalizado,
-            },
+            "crear_cotizacion: cotizacion creada id=%s personalizado=%s",
+            cotizacion.id,
+            oferta.personalizado,
         )
         return cotizacion
 
     async def obtener_cotizacion(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
         logger.info(
-            "consulta de cotizacion",
-            extra={"cotizacion_id": cotizacion_id, "cliente_id": cliente_id},
+            "obtener_cotizacion: consultando id=%s cliente_id=%s",
+            sanear_para_log(cotizacion_id),
+            sanear_para_log(cliente_id),
         )
         return await self._repositorio.obtener(cotizacion_id, cliente_id)
 

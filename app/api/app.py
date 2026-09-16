@@ -13,7 +13,9 @@ from app.adapters.factory import build_dependencias
 from app.api.errors import install_error_handlers
 from app.api.routes import router
 from app.config import Settings, get_settings
+from app.logging_utils import SinRuidoDeHealthCheck
 from app.services import CotizacionService
+from app.telemetry import agregar_encabezado_trace_id, setup_telemetry, shutdown_telemetry
 
 SPEC_PATH = Path(__file__).resolve().parents[2] / "openapi" / "openapi.yaml"
 
@@ -21,6 +23,7 @@ SPEC_PATH = Path(__file__).resolve().parents[2] / "openapi" / "openapi.yaml"
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("uvicorn.access").addFilter(SinRuidoDeHealthCheck())
 
     deps = build_dependencias(settings)
     service = CotizacionService(deps.perfilador, deps.repositorio)
@@ -29,12 +32,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI):
         yield
         await deps.aclose()
+        shutdown_telemetry(telemetry)
 
     app = FastAPI(
         title="svc-cotizacion — Cotización y Rating",
         version="0.1.0",
         lifespan=lifespan,
     )
+    telemetry = setup_telemetry(app, settings)
+    agregar_encabezado_trace_id(app)
     app.state.settings = settings
     app.state.deps = deps
     app.state.service = service

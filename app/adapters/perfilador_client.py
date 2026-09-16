@@ -59,12 +59,11 @@ class PerfiladorClient:
 
         resp = await self._http.request("POST", "/perfiles", json=cuerpo)
         if resp.status_code != 200:
-            logger.warning(
-                "perfilamiento respondio con error",
-                extra={"status_code": resp.status_code},
-            )
+            logger.warning("perfilamiento respondio con error status_code=%s", resp.status_code)
             raise DependenciaNoDisponible(f"Perfilamiento respondió {resp.status_code}")
-        return _a_perfil(resp.json())
+        perfil = _a_perfil(resp.json())
+        logger.info("perfilamiento resuelto nivel_riesgo=%s", perfil.nivel_riesgo)
+        return perfil
 
 
 def _a_perfil(data: dict) -> PerfilRiesgo:
