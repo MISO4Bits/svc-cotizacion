@@ -12,6 +12,7 @@ estados (CLOSED → OPEN → HALF_OPEN) descrita por Nygard.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 
@@ -33,6 +34,9 @@ _TRANSIENT_EXCEPTIONS = (
     httpx.WriteTimeout,
     httpx.PoolTimeout,
 )
+
+
+logger = logging.getLogger("cotizacion.resilience")
 
 
 class _Transient(Exception):
@@ -70,6 +74,8 @@ class AsyncCircuitBreaker:
         return resultado
 
     def _registrar_exito(self) -> None:
+        if self._state != "closed":
+            logger.info("circuito cerrado", extra={"dependencia": self.name})
         self._failures = 0
         self._state = "closed"
 
@@ -78,6 +84,10 @@ class AsyncCircuitBreaker:
         if self._failures >= self._fail_max:
             self._state = "open"
             self._opened_at = time.monotonic()
+            logger.warning(
+                "circuito abierto",
+                extra={"dependencia": self.name, "fallos": self._failures},
+            )
 
 
 def build_breaker(name: str, *, fail_max: int, reset_timeout: int) -> AsyncCircuitBreaker:
@@ -121,6 +131,10 @@ class ResilientHttpClient:
             stop=stop_after_attempt(self._retries + 1),
             wait=wait_exponential_jitter(initial=0.05, max=0.5),
             retry=retry_if_exception_type(_Transient),
+            before_sleep=lambda estado: logger.warning(
+                "reintentando llamada a dependencia",
+                extra={"intento": estado.attempt_number},
+            ),
         )
         try:
             return await retryer(_attempt)
