@@ -1,0 +1,49 @@
+# Job de k6 para EXP-02, dentro del clúster (namespace k6-exp02).
+#
+#   kubectl create namespace k6-exp02
+#   kubectl -n k6-exp02 create configmap exp02-script \
+#     --from-file=exp-02-proveedores.js=k6/exp-02-proveedores.js
+#   # edita MODO / ESCENARIO abajo y aplica:
+#   kubectl apply -f k6/exp-02-job.yaml
+#   kubectl -n k6-exp02 logs -f job/exp02-k6        # resumen y thresholds
+#   kubectl -n k6-exp02 delete job exp02-k6          # antes de la siguiente corrida
+#
+# Un solo pod chico: el clúster de dev está a 63/64 pods (2 nodos x 32).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: exp02-k6
+  namespace: k6-exp02
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          args: ["run", "/scripts/exp-02-proveedores.js"]
+          env:
+            - name: MODO
+              value: perfil          # perfil | cotizacion
+            - name: ESCENARIO
+              value: normal          # normal | timeout | error503 | solo-of (solo modo perfil)
+            - name: RATE
+              value: "30"
+            - name: DURACION
+              value: 3m
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: exp02-script
