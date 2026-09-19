@@ -5,7 +5,6 @@ from __future__ import annotations
 from decimal import Decimal
 
 from app.domain import (
-    ActividadFisica,
     Cotizacion,
     DependenciaNoDisponible,
     EfectoFactor,
@@ -13,57 +12,50 @@ from app.domain import (
     NivelRiesgo,
     PerfilRiesgo,
     RecursoNoEncontrado,
-    SolicitudCotizacion,
 )
 
 
 class FakePerfilRiesgo:
-    """Perfilador simulado. Con ``disponible=False`` imita a Perfilamiento caído."""
+    """Perfilador simulado — perfil fijo, no calcula nada (a diferencia de
+    la versión vieja, el contrato real ya no manda datos de la solicitud
+    para que Perfilamiento "calcule": ahora es una lectura de un perfil que
+    Perfilamiento ya calculó por su cuenta, de forma asíncrona).
 
-    def __init__(self, *, disponible: bool = True) -> None:
+    ``disponible=False`` imita a Perfilamiento caído (timeout/5xx).
+    ``existe=False`` imita "perfil no calculado todavía" (sin consentimiento
+    otorgado) — caso distinto, mismo fallback.
+    """
+
+    def __init__(self, *, disponible: bool = True, existe: bool = True) -> None:
         self._disponible = disponible
+        self._existe = existe
 
-    async def perfilar(self, solicitud: SolicitudCotizacion) -> PerfilRiesgo:
+    async def obtener_perfil(self, cliente_id: str) -> PerfilRiesgo | None:
         if not self._disponible:
             raise DependenciaNoDisponible("Perfilamiento no responde")
-
-        habitos = solicitud.cuestionario_habitos
-        factor = Decimal("1.00")
-        factores: list[FactorRiesgo] = []
-
-        if habitos.consume_tabaco:
-            factor += Decimal("0.25")
-            factores.append(
-                FactorRiesgo("Consumo de tabaco", EfectoFactor.NEGATIVO, Decimal("0.4"))
-            )
-        if habitos.condiciones_preexistentes:
-            factor += Decimal("0.20")
-            factores.append(
-                FactorRiesgo(
-                    "Condiciones médicas preexistentes", EfectoFactor.NEGATIVO, Decimal("0.3")
-                )
-            )
-        if habitos.actividad_fisica == ActividadFisica.REGULAR:
-            factor -= Decimal("0.10")
-            factores.append(FactorRiesgo("Actividad física regular", EfectoFactor.POSITIVO))
-        elif habitos.actividad_fisica == ActividadFisica.OCASIONAL:
-            factor -= Decimal("0.05")
-        if habitos.dependientes_economicos > 2:
-            factor += Decimal("0.05")
-
-        factor = min(max(factor, Decimal("0.60")), Decimal("1.80"))
-        if factor < Decimal("0.95"):
-            nivel = NivelRiesgo.BAJO
-        elif factor <= Decimal("1.15"):
-            nivel = NivelRiesgo.MEDIO
-        else:
-            nivel = NivelRiesgo.ALTO
-
+        if not self._existe:
+            return None
         return PerfilRiesgo(
-            nivel_riesgo=nivel,
-            factores=tuple(factores),
-            factor_ajuste=factor,
+            nivel_riesgo=NivelRiesgo.BAJO,
+            factores=(FactorRiesgo("Perfil simulado", EfectoFactor.POSITIVO, Decimal("0.2")),),
+            factor_ajuste=Decimal("0.90"),
         )
+
+
+class FakeCache:
+    """Caché en memoria — mismo contrato que RedisCache, sin infraestructura real."""
+
+    def __init__(self) -> None:
+        self._por_cliente: dict[str, PerfilRiesgo] = {}
+
+    async def obtener(self, cliente_id: str) -> PerfilRiesgo | None:
+        return self._por_cliente.get(cliente_id)
+
+    async def guardar(self, cliente_id: str, perfil: PerfilRiesgo) -> None:
+        self._por_cliente[cliente_id] = perfil
+
+    async def eliminar(self, cliente_id: str) -> None:
+        self._por_cliente.pop(cliente_id, None)
 
 
 class FakeCotizacionRepository:

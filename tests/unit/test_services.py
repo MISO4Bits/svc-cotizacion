@@ -44,7 +44,7 @@ def _solicitud(**kw) -> SolicitudCotizacion:
 
 
 class _PerfilOk:
-    async def perfilar(self, solicitud: SolicitudCotizacion) -> PerfilRiesgo:
+    async def obtener_perfil(self, cliente_id: str) -> PerfilRiesgo:
         return PerfilRiesgo(
             nivel_riesgo=NivelRiesgo.BAJO,
             factores=(FactorRiesgo("Actividad física regular", EfectoFactor.POSITIVO),),
@@ -53,8 +53,13 @@ class _PerfilOk:
 
 
 class _PerfilCaido:
-    async def perfilar(self, solicitud: SolicitudCotizacion) -> PerfilRiesgo:
+    async def obtener_perfil(self, cliente_id: str) -> PerfilRiesgo:
         raise DependenciaNoDisponible("Perfilamiento no responde")
+
+
+class _PerfilInexistente:
+    async def obtener_perfil(self, cliente_id: str) -> PerfilRiesgo | None:
+        return None
 
 
 class _Repo:
@@ -98,6 +103,17 @@ async def test_crear_cotizacion_cae_a_tarifa_estandar_si_perfilamiento_falla():
     assert cot.oferta.personalizado is False
     assert cot.perfil_riesgo is None
     assert cot.oferta.prima_mensual == cot.oferta.prima_base_mensual
+    assert cot.oferta.fuentes_no_disponibles == ("perfilamiento",)
+
+
+async def test_crear_cotizacion_cae_a_tarifa_estandar_si_perfil_no_existe_todavia():
+    """Perfilamiento respondió (no está caído) pero el cliente no tiene
+    perfil calculado todavía — mismo fallback que una dependencia caída,
+    pero es un camino distinto (None, no excepción)."""
+    cot = await CotizacionService(_PerfilInexistente(), _Repo()).crear_cotizacion(_solicitud())
+
+    assert cot.oferta.personalizado is False
+    assert cot.perfil_riesgo is None
     assert cot.oferta.fuentes_no_disponibles == ("perfilamiento",)
 
 

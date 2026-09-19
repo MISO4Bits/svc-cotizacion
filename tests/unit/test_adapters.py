@@ -6,8 +6,8 @@ from decimal import Decimal
 import pytest
 
 from app.adapters.factory import build_dependencias
-from app.adapters.fakes import FakeCotizacionRepository, FakePerfilRiesgo
-from app.adapters.perfilador_client import PerfiladorClient
+from app.adapters.fakes import FakeCache, FakeCotizacionRepository, FakePerfilRiesgo
+from app.adapters.perfil_cache import PerfilRiesgoCacheado
 from app.config import Settings
 from app.domain import (
     ActividadFisica,
@@ -47,28 +47,19 @@ def _solicitud(**habitos) -> SolicitudCotizacion:
     )
 
 
-async def test_perfilador_fake_bajo_riesgo():
-    perfil = await FakePerfilRiesgo().perfilar(_solicitud(actividad_fisica=ActividadFisica.REGULAR))
+async def test_perfilador_fake_devuelve_perfil_fijo():
+    perfil = await FakePerfilRiesgo().obtener_perfil("cli-1")
     assert perfil.nivel_riesgo == NivelRiesgo.BAJO
     assert perfil.factor_ajuste < Decimal("1.00")
 
 
-async def test_perfilador_fake_alto_riesgo():
-    perfil = await FakePerfilRiesgo().perfilar(
-        _solicitud(
-            consume_tabaco=True,
-            condiciones_preexistentes=True,
-            actividad_fisica=ActividadFisica.NUNCA,
-            dependientes_economicos=4,
-        )
-    )
-    assert perfil.nivel_riesgo == NivelRiesgo.ALTO
-    assert len(perfil.factores) >= 2
-
-
 async def test_perfilador_fake_caido_lanza():
     with pytest.raises(DependenciaNoDisponible):
-        await FakePerfilRiesgo(disponible=False).perfilar(_solicitud())
+        await FakePerfilRiesgo(disponible=False).obtener_perfil("cli-1")
+
+
+async def test_perfilador_fake_sin_perfil_calculado_devuelve_none():
+    assert await FakePerfilRiesgo(existe=False).obtener_perfil("cli-1") is None
 
 
 def _cotizacion(cliente_id: str = "cli-1", cot_id: str = "cot-1") -> Cotizacion:
@@ -128,9 +119,10 @@ async def test_dependencias_aclose_con_fakes():
     await build_dependencias(Settings(adapters="fake")).aclose()
 
 
-def test_factory_modo_http_arma_cliente_resiliente():
+def test_factory_modo_http_arma_cliente_resiliente_con_cache():
     deps = build_dependencias(Settings(adapters="http"))
-    assert isinstance(deps.perfilador, PerfiladorClient)
+    assert isinstance(deps.perfilador, PerfilRiesgoCacheado)
+    assert isinstance(deps.cache, FakeCache)  # cache_backend="memory" por defecto
 
 
 async def test_dependencias_aclose_cierra_el_cliente_http():

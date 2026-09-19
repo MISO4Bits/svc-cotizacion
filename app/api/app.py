@@ -28,9 +28,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     deps = build_dependencias(settings)
     service = CotizacionService(deps.perfilador, deps.repositorio)
 
+    consumidor = None
+    if settings.cache_backend == "redis":  # pragma: no cover
+        from app.adapters.pubsub_consumer import ConsumidorPubSub
+
+        consumidor = ConsumidorPubSub(
+            settings.pubsub_project_id or "", settings.pubsub_subscription, deps.cache
+        )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        if consumidor is not None:
+            consumidor.iniciar()  # pragma: no cover — requiere cache_backend=redis (GCP real)
         yield
+        if consumidor is not None:
+            consumidor.detener()  # pragma: no cover — idem
         await deps.aclose()
         shutdown_telemetry(telemetry)
 

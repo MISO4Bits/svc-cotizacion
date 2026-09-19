@@ -67,7 +67,7 @@ class CotizacionService:
 
         inicio = time.perf_counter()
         try:
-            perfil = await self._perfilador.perfilar(solicitud)
+            perfil = await self._perfilador.obtener_perfil(solicitud.cliente_id)
         except DependenciaNoDisponible:
             logger.warning("crear_cotizacion: perfilamiento no disponible, cae a tarifa estandar")
             perfil = None

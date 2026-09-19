@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from decimal import Decimal
 
 import httpx
@@ -8,14 +7,7 @@ import pytest
 import respx
 
 from app.adapters.perfilador_client import PerfiladorClient
-from app.domain import (
-    ActividadFisica,
-    CuestionarioHabitos,
-    DatosCredito,
-    DependenciaNoDisponible,
-    NivelRiesgo,
-    SolicitudCotizacion,
-)
+from app.domain import DependenciaNoDisponible, NivelRiesgo
 from app.resilience import ResilientHttpClient, build_breaker
 
 BASE = "http://perfilamiento.local"
@@ -30,25 +22,6 @@ _RESPUESTA_OK = {
 }
 
 
-def _solicitud() -> SolicitudCotizacion:
-    return SolicitudCotizacion(
-        cliente_id="cli-1",
-        datos_credito=DatosCredito(
-            valor_credito=Decimal("150000000"),
-            plazo_meses=240,
-            edad=38,
-            entidad_acreedora="Banco X",
-            saldo_insoluto=Decimal("140000000"),
-        ),
-        cuestionario_habitos=CuestionarioHabitos(
-            consume_tabaco=False,
-            actividad_fisica=ActividadFisica.REGULAR,
-            condiciones_preexistentes=False,
-            dependientes_economicos=1,
-        ),
-    )
-
-
 def _cliente(retries: int = 0) -> PerfiladorClient:
     http = ResilientHttpClient(
         BASE,
@@ -61,10 +34,10 @@ def _cliente(retries: int = 0) -> PerfiladorClient:
 
 @respx.mock
 async def test_perfil_camino_feliz():
-    respx.post(f"{BASE}/perfiles").mock(return_value=httpx.Response(200, json=_RESPUESTA_OK))
+    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(200, json=_RESPUESTA_OK))
     cliente = _cliente()
     try:
-        perfil = await cliente.perfilar(_solicitud())
+        perfil = await cliente.obtener_perfil("cli-1")
     finally:
         await cliente.aclose()
     assert perfil.nivel_riesgo == NivelRiesgo.BAJO
@@ -73,17 +46,14 @@ async def test_perfil_camino_feliz():
 
 
 @respx.mock
-async def test_perfil_envia_credito_y_cuestionario():
-    ruta = respx.post(f"{BASE}/perfiles").mock(return_value=httpx.Response(200, json=_RESPUESTA_OK))
+async def test_perfil_no_encontrado_devuelve_none():
+    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(404))
     cliente = _cliente()
     try:
-        await cliente.perfilar(_solicitud())
+        perfil = await cliente.obtener_perfil("cli-1")
     finally:
         await cliente.aclose()
-    cuerpo = json.loads(ruta.calls.last.request.content)
-    assert cuerpo["clienteId"] == "cli-1"
-    assert cuerpo["datosCredito"]["edad"] == 38
-    assert cuerpo["cuestionarioHabitos"]["actividadFisica"] == "REGULAR"
+    assert perfil is None
 
 
 @respx.mock
@@ -94,10 +64,10 @@ async def test_perfil_parcial_sin_pesos():
         "factores": [{"descripcion": "Perfil parcial", "efecto": "NEGATIVO"}],
         "fuentesNoDisponibles": ["open-data"],
     }
-    respx.post(f"{BASE}/perfiles").mock(return_value=httpx.Response(200, json=respuesta))
+    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(200, json=respuesta))
     cliente = _cliente()
     try:
-        perfil = await cliente.perfilar(_solicitud())
+        perfil = await cliente.obtener_perfil("cli-1")
     finally:
         await cliente.aclose()
     assert perfil.factores[0].peso_relativo is None
@@ -106,21 +76,21 @@ async def test_perfil_parcial_sin_pesos():
 
 @respx.mock
 async def test_perfil_5xx_lanza_dependencia_no_disponible():
-    respx.post(f"{BASE}/perfiles").mock(return_value=httpx.Response(500))
+    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(500))
     cliente = _cliente()
     try:
         with pytest.raises(DependenciaNoDisponible):
-            await cliente.perfilar(_solicitud())
+            await cliente.obtener_perfil("cli-1")
     finally:
         await cliente.aclose()
 
 
 @respx.mock
 async def test_perfil_timeout_lanza_dependencia_no_disponible():
-    respx.post(f"{BASE}/perfiles").mock(side_effect=httpx.ReadTimeout("lento"))
+    respx.get(f"{BASE}/perfiles/cli-1").mock(side_effect=httpx.ReadTimeout("lento"))
     cliente = _cliente()
     try:
         with pytest.raises(DependenciaNoDisponible):
-            await cliente.perfilar(_solicitud())
+            await cliente.obtener_perfil("cli-1")
     finally:
         await cliente.aclose()
