@@ -10,10 +10,12 @@ página "Cotización y Rating" de David (Confluence).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Any
+from uuid import uuid4
 
 PRODUCTO = "VIDA_HIPOTECARIO"
 
@@ -48,6 +50,27 @@ class ReglaNegocio(CotError):
 class DependenciaNoDisponible(CotError):
     status = 503
     title = "Dependencia no disponible"
+
+
+def new_id() -> str:
+    return str(uuid4())
+
+
+def now_utc() -> datetime:
+    return datetime.now(UTC)
+
+
+@dataclass
+class DomainEvent:
+    """Evento de dominio recibido del tópico compartido (ver
+    iac-gcp-dev/modules/pubsub). Cotización solo consume — hoy únicamente
+    ``ConsentimientoRevocado``, para invalidar el caché de perfiles (ver
+    adapters/consumidores.py)."""
+
+    tipo: str
+    datos: dict[str, Any]
+    id: str = field(default_factory=new_id)
+    ocurrido_en: datetime = field(default_factory=now_utc)
 
 
 # --- enumeraciones del dominio ---
