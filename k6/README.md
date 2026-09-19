@@ -57,3 +57,35 @@ Corré `lento-timeout` dos veces:
 - con `COT_CIRCUIT_FAIL_MAX=999999` → se ve solo el costo de timeout + fallback (700 ms por request)
 
 La diferencia entre las dos p95 muestra cuánto aporta cada mecanismo.
+
+
+# k6 — EXP-01 (punto de quiebre)
+
+`exp-01-punto-de-quiebre.js` sube la tasa de `POST /v1/cotizaciones` por escalones
+hasta que el p95 de una etapa cruza 250 ms (escenario "Cotización embebida" del
+enunciado) y se corta solo. Va por la plataforma real (API Gateway -> bff-web ->
+svc-cotizacion), con **un solo usuario**: `setup()` lo registra, otorga
+consentimiento `OPEN_FINANCE` y calienta el caché de perfil.
+
+```
+k6 cloud login -t <TOKEN> --stack <STACK>     # una vez
+k6 cloud run k6/exp-01-punto-de-quiebre.js    # desde São Paulo (aísla la latencia de red)
+k6 run k6/exp-01-punto-de-quiebre.js          # local: incluye la distancia a la nube
+```
+
+Lo que hay que saber antes de correrlo:
+
+- **Corre desde k6 Cloud, no desde tu red.** Desde Bogotá el piso de latencia de
+  red (min ~204 ms) ya rompe el umbral de 250 ms con carga casi nula.
+- **Un threshold por etapa** (`cotizacion_latencia_e2e{etapa:<tasa>}`), no uno
+  acumulado: sobre un Trend k6 evalúa todas las muestras desde el inicio, y las
+  rápidas de las etapas bajas diluyen las lentas de la etapa mala — el corte
+  automático nunca se disparaba.
+- **Tope de 100 VUs** en el plan de k6 Cloud de esta cuenta. Si se agotan los VUs
+  antes de que el servidor se rompa, mirar `dropped_iterations`.
+- Requiere `BFF_SESSION_TTL_SECONDS` ampliado en dev (el token de 1 h no alcanza
+  para un ramp largo) y que el WAF de Cloud Armor (100 req/min por IP) **no** esté
+  aplicado en el ambiente.
+- Para ver qué servicio se satura: dashboard `grafana-dashboards/solventa-observabilidad-servicios.json`
+  (latencia y CPU/memoria por servicio).
+- Cada corrida en la nube consume VUh del plan (~16-30 VUh por corrida).
