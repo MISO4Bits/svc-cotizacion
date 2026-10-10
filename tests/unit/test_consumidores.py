@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from app.adapters.fakes import FakeCache
 from app.consumidores import despachar_evento
 from app.domain import DomainEvent, EfectoFactor, FactorRiesgo, NivelRiesgo, PerfilRiesgo
@@ -22,6 +24,19 @@ async def test_consentimiento_revocado_invalida_el_cache():
     evento = DomainEvent("ConsentimientoRevocado", {"clienteId": "cli-1", "scope": "OPEN_FINANCE"})
 
     await despachar_evento(cache, evento)
+
+    assert await cache.obtener("cli-1") is None
+
+
+@pytest.mark.parametrize("tipo", ["PerfilCalculado", "PerfilInvalidado"])
+async def test_los_eventos_de_perfilamiento_tambien_invalidan_el_cache(tipo):
+    cache = FakeCache()
+    await cache.guardar(
+        "cli-1",
+        PerfilRiesgo(nivel_riesgo=NivelRiesgo.MEDIO, factores=(), factor_ajuste=Decimal("1")),
+    )
+
+    await despachar_evento(cache, DomainEvent(tipo, {"clienteId": "cli-1"}))
 
     assert await cache.obtener("cli-1") is None
 
