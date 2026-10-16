@@ -3,7 +3,7 @@
 // ni el gateway de por medio, la latencia medida es la del servicio.
 //
 // Dos modos (MODO):
-//   perfil     POST /perfiles en svc-perfilamiento. El escenario se elige por
+//   perfil     POST /v1/perfiles en svc-perfilamiento. El escenario se elige por
 //              número de documento; WireMock (deploy/apps/wiremock) responde
 //              distinto según el documento, así no hay que reiniciar nada
 //              entre escenarios. Objetivo BITS-80: p95 <= 400 ms, p99 <= 800 ms.
@@ -89,7 +89,7 @@ export default function () {
   let res;
   if (MODO === "perfil") {
     res = http.post(
-      `${PERFIL_URL}/perfiles`,
+      `${PERFIL_URL}/v1/perfiles`,
       JSON.stringify({ clienteId: cliente, numeroDocumento: DOCUMENTOS[ESCENARIO] }),
       { headers: { "Content-Type": "application/json" } },
     );

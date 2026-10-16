@@ -4,7 +4,7 @@ Lee el perfil ya calculado de forma asíncrona (disparado por consentimiento,
 ver Confluence › página Perfilamiento, Sección 8, decisión 2026-09-18) — ya
 no se le pide a Perfilamiento que calcule nada en caliente:
 
-  GET {base}/perfiles/{clienteId}
+  GET {base}/v1/perfiles/{clienteId}
   200: { nivelRiesgo, factorAjuste, factores[], fuentesNoDisponibles[] }
   404: perfil no calculado todavía (consentimiento no otorgado, o el
        evento aún no se procesó) — no es un fallo, ``CotizacionService``
@@ -41,7 +41,7 @@ class PerfiladorClient:
         await self._http.aclose()
 
     async def obtener_perfil(self, cliente_id: str) -> PerfilRiesgo | None:
-        resp = await self._http.request("GET", f"/perfiles/{cliente_id}")
+        resp = await self._http.request("GET", f"/v1/perfiles/{cliente_id}")
         if resp.status_code == 404:
             logger.info("perfilamiento: perfil no calculado todavia cliente_id=%s", cliente_id)
             return None

@@ -1,5 +1,5 @@
 {
   "priority": 1,
-  "request": { "method": "POST", "urlPath": "/perfiles" },
+  "request": { "method": "POST", "urlPath": "/v1/perfiles" },
   "response": { "status": 503 }
 }

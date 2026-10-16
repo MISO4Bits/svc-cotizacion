@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     adapters: str = "fake"
 
     # Modo "http": adaptador resiliente hacia Perfilamiento (EXP-02). El
-    # contrato es una lectura (GET /perfiles/{clienteId}, ver Confluence ›
+    # contrato es una lectura (GET /v1/perfiles/{clienteId}, ver Confluence ›
     # página Perfilamiento, Sección 8, decisión 2026-09-18) — ya no una
     # petición de cómputo en caliente, por eso el timeout bajó de 700ms
     # (viejo presupuesto, cuando Perfilamiento calculaba contra Open
