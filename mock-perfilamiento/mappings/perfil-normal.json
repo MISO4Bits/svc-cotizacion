@@ -2,7 +2,7 @@
   "priority": 5,
   "request": {
     "method": "POST",
-    "urlPath": "/perfiles"
+    "urlPath": "/v1/perfiles"
   },
   "response": {
     "status": 200,

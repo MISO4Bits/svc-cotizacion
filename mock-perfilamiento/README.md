@@ -1,7 +1,7 @@
 # mock-perfilamiento — Perfilamiento simulado para EXP-02
 
 WireMock haciendo de servicio de **Perfilamiento**. `svc-cotizacion` (en modo `http`)
-le pega a `POST /perfiles`; acá inyectamos las fallas del spec de EXP-02.
+le pega a `POST /v1/perfiles`; acá inyectamos las fallas del spec de EXP-02.
 
 ## Levantar
 
@@ -12,7 +12,7 @@ docker compose -f mock-perfilamiento/docker-compose.yml up --build
 - `svc-cotizacion` → <http://localhost:8080>
 - WireMock → <http://localhost:8089> (admin en `/__admin`)
 
-Arranca en modo **normal**: `POST /perfiles` responde `200` en ~40 ms con un perfil válido
+Arranca en modo **normal**: `POST /v1/perfiles` responde `200` en ~40 ms con un perfil válido
 (`mappings/perfil-normal.json`).
 
 ## Sin Docker (más rápido para probar)

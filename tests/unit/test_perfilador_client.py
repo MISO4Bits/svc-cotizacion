@@ -34,7 +34,9 @@ def _cliente(retries: int = 0) -> PerfiladorClient:
 
 @respx.mock
 async def test_perfil_camino_feliz():
-    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(200, json=_RESPUESTA_OK))
+    respx.get(f"{BASE}/v1/perfiles/cli-1").mock(
+        return_value=httpx.Response(200, json=_RESPUESTA_OK)
+    )
     cliente = _cliente()
     try:
         perfil = await cliente.obtener_perfil("cli-1")
@@ -47,7 +49,7 @@ async def test_perfil_camino_feliz():
 
 @respx.mock
 async def test_perfil_no_encontrado_devuelve_none():
-    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(404))
+    respx.get(f"{BASE}/v1/perfiles/cli-1").mock(return_value=httpx.Response(404))
     cliente = _cliente()
     try:
         perfil = await cliente.obtener_perfil("cli-1")
@@ -64,7 +66,7 @@ async def test_perfil_parcial_sin_pesos():
         "factores": [{"descripcion": "Perfil parcial", "efecto": "NEGATIVO"}],
         "fuentesNoDisponibles": ["open-data"],
     }
-    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(200, json=respuesta))
+    respx.get(f"{BASE}/v1/perfiles/cli-1").mock(return_value=httpx.Response(200, json=respuesta))
     cliente = _cliente()
     try:
         perfil = await cliente.obtener_perfil("cli-1")
@@ -76,7 +78,7 @@ async def test_perfil_parcial_sin_pesos():
 
 @respx.mock
 async def test_perfil_5xx_lanza_dependencia_no_disponible():
-    respx.get(f"{BASE}/perfiles/cli-1").mock(return_value=httpx.Response(500))
+    respx.get(f"{BASE}/v1/perfiles/cli-1").mock(return_value=httpx.Response(500))
     cliente = _cliente()
     try:
         with pytest.raises(DependenciaNoDisponible):
@@ -87,7 +89,7 @@ async def test_perfil_5xx_lanza_dependencia_no_disponible():
 
 @respx.mock
 async def test_perfil_timeout_lanza_dependencia_no_disponible():
-    respx.get(f"{BASE}/perfiles/cli-1").mock(side_effect=httpx.ReadTimeout("lento"))
+    respx.get(f"{BASE}/v1/perfiles/cli-1").mock(side_effect=httpx.ReadTimeout("lento"))
     cliente = _cliente()
     try:
         with pytest.raises(DependenciaNoDisponible):
