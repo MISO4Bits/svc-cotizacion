@@ -24,25 +24,26 @@ class _Model(BaseModel):
 
 class DatosCreditoIn(_Model):
     valor_credito: Decimal = Field(ge=10_000_000)
-    plazo_meses: int = Field(ge=12, le=480)
-    edad: int = Field(ge=18, le=65)
+    plazo_restante_meses: int = Field(ge=1, le=480)
     entidad_acreedora: str = Field(min_length=2, max_length=80)
     saldo_insoluto: Decimal = Field(gt=0)
 
 
-class CuestionarioHabitosIn(_Model):
-    consume_tabaco: bool
-    actividad_fisica: Literal["NUNCA", "OCASIONAL", "REGULAR"]
-    condiciones_preexistentes: bool
-    dependientes_economicos: int = Field(ge=0, le=20)
-
-
 class SolicitudCotizacionIn(_Model):
+    # Ya calculada por el BFF a partir de la fecha de nacimiento del registro. El rango
+    # permitido (18 a 65) lo valida el servicio, para responder con el campo y el rango.
+    edad: int
     datos_credito: DatosCreditoIn
-    cuestionario_habitos: CuestionarioHabitosIn
 
 
 # --- salida ---
+
+
+class DatosCreditoOut(_Model):
+    valor_credito: float
+    plazo_restante_meses: int
+    entidad_acreedora: str
+    saldo_insoluto: float
 
 
 class FactorRiesgoOut(_Model):
@@ -72,9 +73,10 @@ class VigenciaOut(_Model):
 
 
 class CotizacionOut(_Model):
-    id: str
     estado: Literal["VIGENTE", "EXPIRADA"]
     producto: Literal["VIDA_HIPOTECARIO"]
+    datos_credito: DatosCreditoOut
+    origen_datos: Literal["DECLARADO"]
     oferta: OfertaOut
     perfil_riesgo: PerfilRiesgoOut | None = None
     vigencia_cotizacion: VigenciaOut

@@ -20,3 +20,10 @@ def test_settings_lee_prefijo_cot(monkeypatch):
 
 def test_get_settings_cachea():
     assert get_settings() is get_settings()
+
+
+def test_settings_de_persistencia_y_tarifa_por_defecto():
+    s = Settings()
+    assert s.repository_backend == "memory"
+    assert s.tarifa_cache_ttl_seconds == 86400
+    assert s.productos_retries == 1

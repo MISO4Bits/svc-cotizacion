@@ -1,25 +1,21 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request, status
 
 from app.api.schemas import (
     CotizacionOut,
+    DatosCreditoOut,
     FactorRiesgoOut,
     OfertaOut,
     PerfilRiesgoOut,
     SolicitudCotizacionIn,
     VigenciaOut,
 )
-from app.domain import (
-    ActividadFisica,
-    Cotizacion,
-    CuestionarioHabitos,
-    DatosCredito,
-    SolicitudCotizacion,
-)
+from app.domain import Cotizacion, DatosCredito, SolicitudCotizacion
 from app.logging_utils import sanear_para_log
 from app.services import CotizacionService
 
@@ -39,27 +35,21 @@ ServiceDep = Annotated[CotizacionService, Depends(get_service)]
 
 def _a_dominio(cliente_id: str, payload: SolicitudCotizacionIn) -> SolicitudCotizacion:
     dc = payload.datos_credito
-    q = payload.cuestionario_habitos
     return SolicitudCotizacion(
         cliente_id=cliente_id,
+        edad=payload.edad,
         datos_credito=DatosCredito(
             valor_credito=dc.valor_credito,
-            plazo_meses=dc.plazo_meses,
-            edad=dc.edad,
+            plazo_restante_meses=dc.plazo_restante_meses,
             entidad_acreedora=dc.entidad_acreedora,
             saldo_insoluto=dc.saldo_insoluto,
-        ),
-        cuestionario_habitos=CuestionarioHabitos(
-            consume_tabaco=q.consume_tabaco,
-            actividad_fisica=ActividadFisica(q.actividad_fisica),
-            condiciones_preexistentes=q.condiciones_preexistentes,
-            dependientes_economicos=q.dependientes_economicos,
         ),
     )
 
 
 def _a_salida(cot: Cotizacion) -> CotizacionOut:
     o = cot.oferta
+    d = cot.datos_credito
     perfil = None
     if cot.perfil_riesgo is not None:
         perfil = PerfilRiesgoOut(
@@ -74,9 +64,15 @@ def _a_salida(cot: Cotizacion) -> CotizacionOut:
             ],
         )
     return CotizacionOut(
-        id=cot.id,
-        estado=str(cot.estado),
+        estado=str(cot.estado_en(datetime.now(UTC))),
         producto=cot.producto,
+        datos_credito=DatosCreditoOut(
+            valor_credito=float(d.valor_credito),
+            plazo_restante_meses=d.plazo_restante_meses,
+            entidad_acreedora=d.entidad_acreedora,
+            saldo_insoluto=float(d.saldo_insoluto),
+        ),
+        origen_datos=str(cot.origen_datos),
         oferta=OfertaOut(
             prima_mensual=float(o.prima_mensual),
             prima_base_mensual=float(o.prima_base_mensual),
@@ -93,7 +89,7 @@ def _a_salida(cot: Cotizacion) -> CotizacionOut:
 
 
 @router.post(
-    "/cotizaciones",
+    "/v1/cotizaciones",
     response_model=CotizacionOut,
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
@@ -103,25 +99,25 @@ async def crear_cotizacion(
     cliente_id: ClienteId,
     service: ServiceDep,
 ) -> CotizacionOut:
-    logger.info("POST /cotizaciones: solicitud recibida cliente_id=%s", sanear_para_log(cliente_id))
+    logger.info(
+        "POST /v1/cotizaciones: solicitud recibida cliente_id=%s", sanear_para_log(cliente_id)
+    )
     cotizacion = await service.crear_cotizacion(_a_dominio(cliente_id, payload))
     return _a_salida(cotizacion)
 
 
 @router.get(
-    "/cotizaciones/{cotizacion_id}",
+    "/v1/cotizaciones/actual",
     response_model=CotizacionOut,
     response_model_exclude_none=True,
 )
-async def obtener_cotizacion(
-    cotizacion_id: str,
+async def obtener_cotizacion_activa(
     cliente_id: ClienteId,
     service: ServiceDep,
 ) -> CotizacionOut:
     logger.info(
-        "GET /cotizaciones/%s: solicitud recibida cliente_id=%s",
-        sanear_para_log(cotizacion_id),
+        "GET /v1/cotizaciones/actual: solicitud recibida cliente_id=%s",
         sanear_para_log(cliente_id),
     )
-    cotizacion = await service.obtener_cotizacion(cotizacion_id, cliente_id)
+    cotizacion = await service.obtener_cotizacion_activa(cliente_id)
     return _a_salida(cotizacion)

@@ -1,15 +1,15 @@
 """Puertos de salida del servicio de Cotización.
 
-Nombres del diseño de David (Confluence › "Cotización y Rating"). Para EXP-02 solo
-se implementan estos dos; los demás puertos (ReglasRatingPort, SenalesExternasPort,
-EventosPort) quedan para después.
+Nombres del diseño de David (Confluence › "Cotización y Rating"). Hoy están los
+puertos de perfil, tarifa y cotización; los demás (SenalesExternasPort, EventosPort)
+quedan para después.
 """
 
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.domain import Cotizacion, PerfilRiesgo
+from app.domain import Cotizacion, PerfilRiesgo, Tarifa
 
 
 @runtime_checkable
@@ -53,11 +53,36 @@ class CachePort(Protocol):
 
 
 @runtime_checkable
-class CotizacionRepositoryPort(Protocol):
-    async def guardar(self, cotizacion: Cotizacion) -> None:
-        """Persiste una cotización nueva."""
+class TarifaPort(Protocol):
+    async def obtener(self) -> Tarifa:
+        """Tabla de tasas por edad vigente.
+
+        Lanza ``DependenciaNoDisponible`` si no se puede obtener — sin tarifa no hay
+        precio, así que la cotización falla con 503 (no hay tarifa de reemplazo).
+        """
         ...
 
-    async def obtener(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
-        """Recupera una cotización del cliente. Lanza ``RecursoNoEncontrado`` si no existe."""
+
+@runtime_checkable
+class TarifaCachePort(Protocol):
+    """Caché de la tarifa (Redis en producción): un acelerador, nunca la fuente de verdad
+    (esa es Productos). Cualquier fallo del caché se trata como un miss."""
+
+    async def obtener(self) -> Tarifa | None:
+        """``None`` tanto si no está en caché como si el caché falló."""
+        ...
+
+    async def guardar(self, tarifa: Tarifa) -> None:
+        """Best-effort — un fallo al guardar no debe propagarse."""
+        ...
+
+
+@runtime_checkable
+class CotizacionRepositoryPort(Protocol):
+    async def reemplazar(self, cotizacion: Cotizacion) -> None:
+        """Guarda la cotización como la activa del cliente, reemplazando la anterior si la había."""
+        ...
+
+    async def obtener_activa(self, cliente_id: str) -> Cotizacion:
+        """La cotización activa del cliente. Lanza ``RecursoNoEncontrado`` si no tiene."""
         ...

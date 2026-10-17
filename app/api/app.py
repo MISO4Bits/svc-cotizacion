@@ -26,7 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.getLogger("uvicorn.access").addFilter(SinRuidoDeHealthCheck())
 
     deps = build_dependencias(settings)
-    service = CotizacionService(deps.perfilador, deps.repositorio)
+    service = CotizacionService(deps.perfilador, deps.tarifa, deps.repositorio)
 
     consumidor = None
     if settings.cache_backend == "redis":  # pragma: no cover
@@ -38,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        await deps.init()
         if consumidor is not None:
             consumidor.iniciar()  # pragma: no cover — requiere cache_backend=redis (GCP real)
         yield

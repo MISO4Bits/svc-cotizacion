@@ -6,7 +6,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
-from app.adapters.fakes import FakePerfilRiesgo
+from app.adapters.fakes import FakePerfilRiesgo, FakeTarifa
 from app.services import CotizacionService
 
 _METODOS = {"get", "post", "put", "patch", "delete"}
@@ -16,18 +16,12 @@ _PATH_PARAM = re.compile(r"\{[^}]+\}")
 HEADERS = {"X-Cliente-Id": "cli-123"}
 
 SOLICITUD_VALIDA = {
+    "edad": 38,
     "datosCredito": {
         "valorCredito": 150000000,
-        "plazoMeses": 240,
-        "edad": 38,
+        "plazoRestanteMeses": 240,
         "entidadAcreedora": "Banco X",
         "saldoInsoluto": 140000000,
-    },
-    "cuestionarioHabitos": {
-        "consumeTabaco": False,
-        "actividadFisica": "REGULAR",
-        "condicionesPreexistentes": False,
-        "dependientesEconomicos": 2,
     },
 }
 
@@ -49,7 +43,15 @@ def _validar(spec: dict, ref: str, instancia) -> None:
 
 def test_spec_tiene_estructura_openapi(openapi_spec):
     assert openapi_spec["openapi"].startswith("3.")
-    assert "post" in openapi_spec["paths"]["/cotizaciones"]
+    assert "post" in openapi_spec["paths"]["/v1/cotizaciones"]
+    assert "get" in openapi_spec["paths"]["/v1/cotizaciones/actual"]
+
+
+def test_el_contrato_no_tiene_id_ni_cuestionario_de_habitos(openapi_spec):
+    esquemas = openapi_spec["components"]["schemas"]
+    assert "id" not in esquemas["Cotizacion"]["properties"]
+    assert "CuestionarioHabitos" not in esquemas
+    assert "cuestionarioHabitos" not in esquemas["SolicitudCotizacion"]["properties"]
 
 
 def test_referencias_de_schema_existen(openapi_spec):
@@ -67,16 +69,23 @@ def test_contrato_y_codigo_exponen_las_mismas_operaciones(app, openapi_spec):
 
 
 async def test_respuesta_personalizada_cumple_el_contrato(client, openapi_spec):
-    resp = await client.post("/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+    resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
     assert resp.status_code == 201
+    _validar(openapi_spec, "Cotizacion", resp.json())
+
+
+async def test_la_cotizacion_activa_cumple_el_contrato(client, openapi_spec):
+    await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+    resp = await client.get("/v1/cotizaciones/actual", headers=HEADERS)
+    assert resp.status_code == 200
     _validar(openapi_spec, "Cotizacion", resp.json())
 
 
 async def test_respuesta_degradada_cumple_el_contrato(app, client, openapi_spec):
     app.state.service = CotizacionService(
-        FakePerfilRiesgo(disponible=False), app.state.deps.repositorio
+        FakePerfilRiesgo(disponible=False), FakeTarifa(), app.state.deps.repositorio
     )
-    resp = await client.post("/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+    resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
     assert resp.status_code == 201
     cuerpo = resp.json()
     assert cuerpo["oferta"]["personalizado"] is False
@@ -85,9 +94,32 @@ async def test_respuesta_degradada_cumple_el_contrato(app, client, openapi_spec)
 
 
 async def test_error_cumple_problem_details(client, openapi_spec):
-    resp = await client.post("/cotizaciones", json={}, headers=HEADERS)
+    resp = await client.post("/v1/cotizaciones", json={}, headers=HEADERS)
     assert resp.status_code == 400
     assert resp.headers["content-type"].startswith("application/problem+json")
+    _validar(openapi_spec, "Problema", resp.json())
+
+
+async def test_error_de_edad_cumple_problem_details(client, openapi_spec):
+    resp = await client.post(
+        "/v1/cotizaciones", json={**SOLICITUD_VALIDA, "edad": 70}, headers=HEADERS
+    )
+    assert resp.status_code == 400
+    _validar(openapi_spec, "Problema", resp.json())
+
+
+async def test_sin_cotizacion_cumple_problem_details(client, openapi_spec):
+    resp = await client.get("/v1/cotizaciones/actual", headers=HEADERS)
+    assert resp.status_code == 404
+    _validar(openapi_spec, "Problema", resp.json())
+
+
+async def test_sin_tarifa_responde_503_con_problem_details(app, client, openapi_spec):
+    app.state.service = CotizacionService(
+        FakePerfilRiesgo(), FakeTarifa(disponible=False), app.state.deps.repositorio
+    )
+    resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+    assert resp.status_code == 503
     _validar(openapi_spec, "Problema", resp.json())
 
 

@@ -4,52 +4,23 @@ from decimal import Decimal
 
 import pytest
 
+from app.adapters.fakes import FakeCotizacionRepository, FakeTarifa
 from app.domain import (
-    ActividadFisica,
-    Cotizacion,
-    CuestionarioHabitos,
-    DatosCredito,
     DependenciaNoDisponible,
-    EfectoFactor,
-    FactorRiesgo,
-    NivelRiesgo,
     PerfilRiesgo,
     RecursoNoEncontrado,
-    SolicitudCotizacion,
+    SolicitudInvalida,
 )
-from app.services import CotizacionService, calcular_prima_base
-
-
-def _datos(edad: int = 38, saldo: str = "140000000", plazo: int = 240) -> DatosCredito:
-    return DatosCredito(
-        valor_credito=Decimal("150000000"),
-        plazo_meses=plazo,
-        edad=edad,
-        entidad_acreedora="Banco X",
-        saldo_insoluto=Decimal(saldo),
-    )
-
-
-def _solicitud(**kw) -> SolicitudCotizacion:
-    return SolicitudCotizacion(
-        cliente_id="cli-1",
-        datos_credito=_datos(**kw),
-        cuestionario_habitos=CuestionarioHabitos(
-            consume_tabaco=False,
-            actividad_fisica=ActividadFisica.OCASIONAL,
-            condiciones_preexistentes=False,
-            dependientes_economicos=1,
-        ),
-    )
+from app.services import CotizacionService, calcular_prima_base, validar_solicitud
+from tests.factories import datos_credito, perfil, solicitud
 
 
 class _PerfilOk:
+    def __init__(self, factor: str = "0.90") -> None:
+        self._factor = factor
+
     async def obtener_perfil(self, cliente_id: str) -> PerfilRiesgo:
-        return PerfilRiesgo(
-            nivel_riesgo=NivelRiesgo.BAJO,
-            factores=(FactorRiesgo("Actividad física regular", EfectoFactor.POSITIVO),),
-            factor_ajuste=Decimal("0.90"),
-        )
+        return perfil(self._factor)
 
 
 class _PerfilCaido:
@@ -58,47 +29,104 @@ class _PerfilCaido:
 
 
 class _PerfilInexistente:
-    async def obtener_perfil(self, cliente_id: str) -> PerfilRiesgo | None:
+    async def obtener_perfil(self, cliente_id: str) -> None:
         return None
 
 
-class _Repo:
-    def __init__(self) -> None:
-        self.guardadas: list[Cotizacion] = []
-
-    async def guardar(self, cotizacion: Cotizacion) -> None:
-        self.guardadas.append(cotizacion)
-
-    async def obtener(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
-        for c in self.guardadas:
-            if c.id == cotizacion_id and c.cliente_id == cliente_id:
-                return c
-        raise RecursoNoEncontrado("no encontrada")
-
-
-def test_prima_base_escala_con_la_edad():
-    assert calcular_prima_base(_datos(edad=30)) < calcular_prima_base(_datos(edad=45))
-    assert calcular_prima_base(_datos(edad=45)) < calcular_prima_base(_datos(edad=60))
-
-
-def test_prima_base_escala_con_el_saldo():
-    assert calcular_prima_base(_datos(saldo="100000000")) < calcular_prima_base(
-        _datos(saldo="200000000")
+def _servicio(perfilador=None, tarifa=None, repositorio=None) -> CotizacionService:
+    return CotizacionService(
+        perfilador or _PerfilOk(),
+        tarifa or FakeTarifa(),
+        repositorio or FakeCotizacionRepository(),
     )
 
 
-async def test_crear_cotizacion_personalizada():
-    repo = _Repo()
-    cot = await CotizacionService(_PerfilOk(), repo).crear_cotizacion(_solicitud())
+# --- los ejemplos de la historia BITS-95 ---
+# (edad, saldo, plazo restante, factor, prima base, prima mensual)
+EJEMPLOS = [
+    (30, "98000000", 96, "0.85", "13426", "11412"),
+    (37, "178500000", 165, "1.15", "34986", "40234"),
+    (45, "142000000", 228, "1.65", "57084", "94189"),
+    (52, "160000000", 180, None, "92160", "92160"),  # sin perfil
+]
+
+
+@pytest.mark.parametrize(("edad", "saldo", "plazo", "factor", "base", "mensual"), EJEMPLOS)
+async def test_ejemplos_de_la_historia(edad, saldo, plazo, factor, base, mensual):
+    perfilador = _PerfilOk(factor) if factor else _PerfilInexistente()
+
+    cot = await _servicio(perfilador).crear_cotizacion(
+        solicitud(edad=edad, saldo=saldo, plazo=plazo)
+    )
+
+    assert cot.oferta.prima_base_mensual == Decimal(base)
+    assert cot.oferta.prima_mensual == Decimal(mensual)
+    assert cot.oferta.personalizado is (factor is not None)
+
+
+async def test_60_anos_con_240_meses_termina_a_los_80_y_se_rechaza():
+    with pytest.raises(SolicitudInvalida) as error:
+        await _servicio().crear_cotizacion(solicitud(edad=60, saldo="150000000", plazo=240))
+
+    assert error.value.errores[0]["campo"] == "datosCredito.plazoRestanteMeses"
+    assert "180 meses" in error.value.errores[0]["mensaje"]  # 75 años - 60 años
+
+
+@pytest.mark.parametrize("edad", [17, 66, 0, 120])
+async def test_edad_fuera_de_18_a_65_se_rechaza_con_el_campo_y_el_rango(edad):
+    with pytest.raises(SolicitudInvalida) as error:
+        await _servicio().crear_cotizacion(solicitud(edad=edad, plazo=12))
+
+    assert error.value.errores == [{"campo": "edad", "mensaje": "Debe estar entre 18 y 65 años"}]
+
+
+@pytest.mark.parametrize("edad", [18, 65])
+def test_los_limites_de_edad_son_validos(edad):
+    validar_solicitud(solicitud(edad=edad, plazo=12))
+
+
+def test_el_plazo_que_termina_justo_a_los_75_es_valido_y_un_mes_mas_no():
+    validar_solicitud(solicitud(edad=40, plazo=420))  # 40 + 35 años = 75
+    with pytest.raises(SolicitudInvalida):
+        validar_solicitud(solicitud(edad=40, plazo=421))
+
+
+# --- cálculo ---
+
+
+def test_prima_base_es_saldo_por_tasa_sobre_mil_redondeada_al_peso():
+    assert calcular_prima_base(datos_credito(saldo="98000000"), Decimal("0.137")) == Decimal(
+        "13426"
+    )
+    # 100.000.001 × 0,5 ÷ 1.000 = 50.000,0005 → 50.000
+    assert calcular_prima_base(datos_credito(saldo="100000001"), Decimal("0.5")) == Decimal("50000")
+    # mitad hacia arriba: 1.234,5 → 1.235
+    assert calcular_prima_base(datos_credito(saldo="2469000"), Decimal("0.5")) == Decimal("1235")
+
+
+async def test_la_cotizacion_guarda_los_insumos_del_calculo():
+    cot = await _servicio().crear_cotizacion(solicitud(edad=37, saldo="178500000", plazo=165))
+
+    assert cot.edad == 37
+    assert cot.tasa == Decimal("0.196")
+    assert cot.version_tarifa == 1
+    assert cot.origen_datos == "DECLARADO"
+    assert cot.datos_credito.saldo_insoluto == Decimal("178500000")
+    assert cot.perfil_riesgo.factor_ajuste == Decimal("0.90")
+    assert cot.oferta.suma_asegurada == Decimal("178500000")
+    assert cot.oferta.cobertura_meses == 165
+
+
+async def test_crear_cotizacion_personalizada_lleva_los_factores():
+    cot = await _servicio().crear_cotizacion(solicitud())
 
     assert cot.oferta.personalizado is True
     assert cot.perfil_riesgo is not None
-    assert cot.oferta.prima_mensual < cot.oferta.prima_base_mensual
-    assert repo.guardadas == [cot]
+    assert cot.perfil_riesgo.factores[0].descripcion == "Historial de pagos excelente"
 
 
 async def test_crear_cotizacion_cae_a_tarifa_estandar_si_perfilamiento_falla():
-    cot = await CotizacionService(_PerfilCaido(), _Repo()).crear_cotizacion(_solicitud())
+    cot = await _servicio(_PerfilCaido()).crear_cotizacion(solicitud())
 
     assert cot.oferta.personalizado is False
     assert cot.perfil_riesgo is None
@@ -106,21 +134,50 @@ async def test_crear_cotizacion_cae_a_tarifa_estandar_si_perfilamiento_falla():
     assert cot.oferta.fuentes_no_disponibles == ("perfilamiento",)
 
 
-async def test_crear_cotizacion_cae_a_tarifa_estandar_si_perfil_no_existe_todavia():
-    """Perfilamiento respondió (no está caído) pero el cliente no tiene
-    perfil calculado todavía — mismo fallback que una dependencia caída,
-    pero es un camino distinto (None, no excepción)."""
-    cot = await CotizacionService(_PerfilInexistente(), _Repo()).crear_cotizacion(_solicitud())
+async def test_crear_cotizacion_cae_a_tarifa_estandar_si_el_perfil_no_existe_todavia():
+    cot = await _servicio(_PerfilInexistente()).crear_cotizacion(solicitud())
 
     assert cot.oferta.personalizado is False
     assert cot.perfil_riesgo is None
-    assert cot.oferta.fuentes_no_disponibles == ("perfilamiento",)
 
 
-async def test_obtener_cotizacion():
-    service = CotizacionService(_PerfilOk(), _Repo())
-    creada = await service.crear_cotizacion(_solicitud())
+async def test_sin_tarifa_no_hay_cotizacion():
+    with pytest.raises(DependenciaNoDisponible):
+        await _servicio(tarifa=FakeTarifa(disponible=False)).crear_cotizacion(solicitud())
 
-    assert await service.obtener_cotizacion(creada.id, "cli-1") == creada
+
+# --- una sola cotización activa por cliente ---
+
+
+async def test_la_cotizacion_creada_queda_como_la_activa():
+    servicio = _servicio()
+
+    creada = await servicio.crear_cotizacion(solicitud())
+
+    assert await servicio.obtener_cotizacion_activa("cli-1") == creada
+
+
+async def test_una_cotizacion_nueva_reemplaza_a_la_anterior():
+    servicio = _servicio()
+    await servicio.crear_cotizacion(solicitud(saldo="100000000"))
+
+    nueva = await servicio.crear_cotizacion(solicitud(saldo="200000000"))
+
+    activa = await servicio.obtener_cotizacion_activa("cli-1")
+    assert activa == nueva
+    assert activa.datos_credito.saldo_insoluto == Decimal("200000000")
+
+
+async def test_cada_cliente_tiene_su_propia_cotizacion_activa():
+    servicio = _servicio()
+    await servicio.crear_cotizacion(solicitud(cliente_id="cli-1", saldo="100000000"))
+    await servicio.crear_cotizacion(solicitud(cliente_id="cli-2", saldo="200000000"))
+
+    primera = await servicio.obtener_cotizacion_activa("cli-1")
+
+    assert primera.datos_credito.saldo_insoluto == Decimal("100000000")
+
+
+async def test_sin_cotizacion_activa_no_se_encuentra():
     with pytest.raises(RecursoNoEncontrado):
-        await service.obtener_cotizacion(creada.id, "otro")
+        await _servicio().obtener_cotizacion_activa("cli-sin-cotizacion")
