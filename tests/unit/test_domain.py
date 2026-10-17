@@ -5,26 +5,19 @@ from decimal import Decimal
 
 import pytest
 
+from app.adapters.fakes import TARIFA_SEMILLA
 from app.domain import (
-    ActividadFisica,
     CotError,
-    Cotizacion,
-    CuestionarioHabitos,
-    DatosCredito,
     DependenciaNoDisponible,
-    EfectoFactor,
     EstadoCotizacion,
-    FactorRiesgo,
     Moneda,
-    NivelRiesgo,
     Oferta,
-    PerfilRiesgo,
     RecursoNoEncontrado,
     ReglaNegocio,
-    SolicitudCotizacion,
     SolicitudInvalida,
     Vigencia,
 )
+from tests.factories import cotizacion, perfil, solicitud
 
 
 @pytest.mark.parametrize(
@@ -42,6 +35,7 @@ def test_errores_exponen_status_title_y_detail(error, status):
     assert exc.status == status
     assert exc.title
     assert exc.detail == "detalle"
+    assert exc.errores == []
 
 
 def test_error_usa_title_por_defecto():
@@ -50,25 +44,16 @@ def test_error_usa_title_por_defecto():
     assert exc.detail is None
 
 
-def test_solicitud_se_construye():
-    s = SolicitudCotizacion(
-        cliente_id="cli-1",
-        datos_credito=DatosCredito(
-            valor_credito=Decimal("150000000"),
-            plazo_meses=240,
-            edad=38,
-            entidad_acreedora="Banco X",
-            saldo_insoluto=Decimal("140000000"),
-        ),
-        cuestionario_habitos=CuestionarioHabitos(
-            consume_tabaco=False,
-            actividad_fisica=ActividadFisica.REGULAR,
-            condiciones_preexistentes=False,
-            dependientes_economicos=2,
-        ),
-    )
+def test_error_lleva_el_detalle_por_campo():
+    exc = SolicitudInvalida("x", errores=[{"campo": "edad", "mensaje": "fuera de rango"}])
+    assert exc.errores == [{"campo": "edad", "mensaje": "fuera de rango"}]
+
+
+def test_solicitud_se_construye_con_la_edad_ya_calculada():
+    s = solicitud(edad=38)
     assert s.cliente_id == "cli-1"
-    assert s.cuestionario_habitos.actividad_fisica == "REGULAR"
+    assert s.edad == 38
+    assert s.datos_credito.plazo_restante_meses == 240
 
 
 def _oferta(*, personalizado: bool = True, prima: str = "50000", base: str = "60000") -> Oferta:
@@ -111,44 +96,58 @@ def test_vigencia_exige_desde_antes_de_hasta():
         Vigencia(ahora, ahora)
 
 
-def _perfil() -> PerfilRiesgo:
-    return PerfilRiesgo(
-        nivel_riesgo=NivelRiesgo.BAJO,
-        factores=(FactorRiesgo("Actividad física regular", EfectoFactor.POSITIVO),),
-        factor_ajuste=Decimal("0.9"),
-    )
-
-
-def _cotizacion(*, personalizado: bool, perfil: PerfilRiesgo | None) -> Cotizacion:
-    ahora = datetime.now(UTC)
-    oferta = (
-        _oferta() if personalizado else _oferta(personalizado=False, prima="60000", base="60000")
-    )
-    return Cotizacion(
-        id="cot-1",
-        cliente_id="cli-1",
-        estado=EstadoCotizacion.VIGENTE,
-        oferta=oferta,
-        perfil_riesgo=perfil,
-        vigencia=Vigencia(ahora, ahora + timedelta(days=30)),
-        creada_en=ahora,
-    )
-
-
 def test_cotizacion_personalizada_camino_feliz():
-    c = _cotizacion(personalizado=True, perfil=_perfil())
+    c = cotizacion(personalizado=True)
     assert c.producto == "VIDA_HIPOTECARIO"
+    assert c.perfil_riesgo == perfil()
 
 
 def test_cotizacion_no_personalizada_camino_feliz():
-    assert _cotizacion(personalizado=False, perfil=None).perfil_riesgo is None
+    assert cotizacion(personalizado=False).perfil_riesgo is None
 
 
 def test_cotizacion_personalizada_sin_perfil_falla():
+    base = cotizacion(personalizado=True)
     with pytest.raises(ReglaNegocio):
-        _cotizacion(personalizado=True, perfil=None)
+        type(base)(**{**base.__dict__, "perfil_riesgo": None})
 
 
 def test_cotizacion_no_personalizada_con_perfil_falla():
+    base = cotizacion(personalizado=False)
     with pytest.raises(ReglaNegocio):
-        _cotizacion(personalizado=False, perfil=_perfil())
+        type(base)(**{**base.__dict__, "perfil_riesgo": perfil()})
+
+
+def test_la_cotizacion_esta_vigente_durante_30_dias_y_despues_expirada():
+    creada = datetime(2026, 10, 16, tzinfo=UTC)
+    c = cotizacion(creada_en=creada)
+
+    assert c.estado_en(creada) == EstadoCotizacion.VIGENTE
+    assert c.estado_en(creada + timedelta(days=29, hours=23)) == EstadoCotizacion.VIGENTE
+    assert c.estado_en(creada + timedelta(days=30)) == EstadoCotizacion.EXPIRADA
+    assert c.estado_en(creada + timedelta(days=90)) == EstadoCotizacion.EXPIRADA
+
+
+@pytest.mark.parametrize(
+    ("edad", "tasa"),
+    [
+        (18, "0.062"),
+        (24, "0.062"),
+        (25, "0.095"),
+        (30, "0.137"),
+        (37, "0.196"),
+        (45, "0.402"),
+        (52, "0.576"),
+        (59, "0.826"),
+        (60, "1.184"),
+        (65, "1.184"),
+    ],
+)
+def test_la_tarifa_da_la_tasa_de_la_franja_de_la_edad(edad, tasa):
+    assert TARIFA_SEMILLA.tasa_para(edad) == Decimal(tasa)
+
+
+@pytest.mark.parametrize("edad", [17, 66])
+def test_la_tarifa_sin_franja_para_la_edad_falla(edad):
+    with pytest.raises(ReglaNegocio):
+        TARIFA_SEMILLA.tasa_para(edad)

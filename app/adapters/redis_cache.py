@@ -19,8 +19,9 @@ from __future__ import annotations
 import json
 import logging
 
-from app.adapters.perfilador_client import perfil_desde_dict
-from app.domain import PerfilRiesgo
+from app.adapters.perfilador_client import perfil_a_dict, perfil_desde_dict
+from app.adapters.tarifa_client import tarifa_a_dict, tarifa_desde_dict
+from app.domain import PerfilRiesgo, Tarifa
 
 logger = logging.getLogger("cotizacion.adapters.redis_cache")
 
@@ -48,7 +49,9 @@ class RedisCache:  # pragma: no cover
 
     async def guardar(self, cliente_id: str, perfil: PerfilRiesgo) -> None:
         try:
-            await self._client.set(_PREFIJO + cliente_id, json.dumps(_a_dict(perfil)), ex=self._ttl)
+            await self._client.set(
+                _PREFIJO + cliente_id, json.dumps(perfil_a_dict(perfil)), ex=self._ttl
+            )
         except Exception:
             logger.exception(
                 "redis_cache: fallo guardando cliente_id=%s (no bloquea la cotización)", cliente_id
@@ -64,17 +67,34 @@ class RedisCache:  # pragma: no cover
         await self._client.aclose()
 
 
-def _a_dict(perfil: PerfilRiesgo) -> dict:
-    return {
-        "nivelRiesgo": str(perfil.nivel_riesgo),
-        "factorAjuste": str(perfil.factor_ajuste),
-        "factores": [
-            {
-                "descripcion": f.descripcion,
-                "efecto": str(f.efecto),
-                "pesoRelativo": str(f.peso_relativo) if f.peso_relativo is not None else None,
-            }
-            for f in perfil.factores
-        ],
-        "fuentesNoDisponibles": list(perfil.fuentes_no_disponibles),
-    }
+_CLAVE_TARIFA = "tarifa:vida-hipotecario"
+
+
+class RedisTarifaCache:  # pragma: no cover
+    """Caché de la tarifa en el mismo Redis. Mismo criterio que ``RedisCache``: cualquier fallo
+    es un miss o se absorbe, nunca rompe la cotización."""
+
+    def __init__(self, url: str, ttl_seconds: int) -> None:
+        import redis.asyncio as redis
+
+        self._client = redis.from_url(url, decode_responses=True)
+        self._ttl = ttl_seconds
+
+    async def obtener(self) -> Tarifa | None:
+        try:
+            crudo = await self._client.get(_CLAVE_TARIFA)
+        except Exception:
+            logger.exception("redis_cache: fallo leyendo la tarifa, se trata como miss")
+            return None
+        if crudo is None:
+            return None
+        return tarifa_desde_dict(json.loads(crudo))
+
+    async def guardar(self, tarifa: Tarifa) -> None:
+        try:
+            await self._client.set(_CLAVE_TARIFA, json.dumps(tarifa_a_dict(tarifa)), ex=self._ttl)
+        except Exception:
+            logger.exception("redis_cache: fallo guardando la tarifa (no bloquea la cotización)")
+
+    async def aclose(self) -> None:
+        await self._client.aclose()

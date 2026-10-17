@@ -9,9 +9,11 @@ from app.domain import (
     DependenciaNoDisponible,
     EfectoFactor,
     FactorRiesgo,
+    FranjaTarifa,
     NivelRiesgo,
     PerfilRiesgo,
     RecursoNoEncontrado,
+    Tarifa,
 )
 
 
@@ -58,17 +60,65 @@ class FakeCache:
         self._por_cliente.pop(cliente_id, None)
 
 
-class FakeCotizacionRepository:
-    """Guarda cotizaciones en un dict en memoria."""
+# Tabla de la historia BITS-95 (misma que la semilla de Productos, versión 1).
+TARIFA_SEMILLA = Tarifa(
+    version=1,
+    franjas=tuple(
+        FranjaTarifa(desde, hasta, Decimal(tasa))
+        for desde, hasta, tasa in (
+            (18, 24, "0.062"),
+            (25, 29, "0.095"),
+            (30, 34, "0.137"),
+            (35, 39, "0.196"),
+            (40, 44, "0.281"),
+            (45, 49, "0.402"),
+            (50, 54, "0.576"),
+            (55, 59, "0.826"),
+            (60, 65, "1.184"),
+        )
+    ),
+)
+
+
+class FakeTarifa:
+    """Tarifa simulada — la de la historia. ``disponible=False`` imita a Productos caído."""
+
+    def __init__(self, *, disponible: bool = True, tarifa: Tarifa = TARIFA_SEMILLA) -> None:
+        self._disponible = disponible
+        self._tarifa = tarifa
+        self.llamadas = 0
+
+    async def obtener(self) -> Tarifa:
+        self.llamadas += 1
+        if not self._disponible:
+            raise DependenciaNoDisponible("Productos no responde")
+        return self._tarifa
+
+
+class FakeTarifaCache:
+    """Caché de tarifa en memoria — mismo contrato que RedisTarifaCache."""
 
     def __init__(self) -> None:
-        self._por_id: dict[str, Cotizacion] = {}
+        self._tarifa: Tarifa | None = None
 
-    async def guardar(self, cotizacion: Cotizacion) -> None:
-        self._por_id[cotizacion.id] = cotizacion
+    async def obtener(self) -> Tarifa | None:
+        return self._tarifa
 
-    async def obtener(self, cotizacion_id: str, cliente_id: str) -> Cotizacion:
-        cotizacion = self._por_id.get(cotizacion_id)
-        if cotizacion is None or cotizacion.cliente_id != cliente_id:
-            raise RecursoNoEncontrado("cotización no encontrada")
+    async def guardar(self, tarifa: Tarifa) -> None:
+        self._tarifa = tarifa
+
+
+class FakeCotizacionRepository:
+    """Guarda la cotización activa de cada cliente en un dict en memoria."""
+
+    def __init__(self) -> None:
+        self._por_cliente: dict[str, Cotizacion] = {}
+
+    async def reemplazar(self, cotizacion: Cotizacion) -> None:
+        self._por_cliente[cotizacion.cliente_id] = cotizacion
+
+    async def obtener_activa(self, cliente_id: str) -> Cotizacion:
+        cotizacion = self._por_cliente.get(cliente_id)
+        if cotizacion is None:
+            raise RecursoNoEncontrado("el cliente no tiene una cotización activa")
         return cotizacion

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     service_name: str = "svc-cotizacion"
     environment: str = "local"
 
-    # Adaptadores de salida: "fake" (todo en memoria) | "http" (Perfilamiento real).
+    # Adaptadores de salida: "fake" (todo en memoria) | "http" (Perfilamiento y Productos reales).
     adapters: str = "fake"
 
     # Modo "http": adaptador resiliente hacia Perfilamiento (EXP-02). El
@@ -39,6 +39,20 @@ class Settings(BaseSettings):
     cache_backend: str = "memory"
     redis_url: str = "redis://localhost:6379/0"
     perfil_cache_ttl_seconds: int = 43200  # 12h
+
+    # Persistencia de la cotización activa de cada cliente: "memory" (default, pruebas) |
+    # "sqlite" (dev). Cuando se adopte Cloud Spanner (DI-009) se añade un adaptador con el
+    # mismo puerto.
+    repository_backend: str = "memory"
+    database_path: str = "./svc_cotizacion.db"
+
+    # Tarifa (tabla de tasas por edad): la entrega Productos y Configuración. Se llama una sola
+    # vez y se guarda en el caché de Redis; el TTL es la única forma de refrescarla (cambiar la
+    # tarifa es editar la semilla de Productos y desplegar).
+    productos_base_url: str = "http://localhost:8091"
+    productos_timeout_seconds: float = 1.0
+    productos_retries: int = 1
+    tarifa_cache_ttl_seconds: int = 86400  # 24h
 
     # Consumo de ConsentimientoRevocado (solo para invalidar el caché de
     # arriba) — mismo tópico compartido con CoreTransaccional/Perfilamiento

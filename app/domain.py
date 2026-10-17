@@ -27,9 +27,10 @@ class CotError(Exception):
     status = 500
     title = "Error interno"
 
-    def __init__(self, detail: str | None = None) -> None:
+    def __init__(self, detail: str | None = None, errores: list[dict[str, str]] | None = None):
         super().__init__(detail or self.title)
         self.detail = detail
+        self.errores = errores or []
 
 
 class SolicitudInvalida(CotError):
@@ -76,12 +77,6 @@ class DomainEvent:
 # --- enumeraciones del dominio ---
 
 
-class ActividadFisica(StrEnum):
-    NUNCA = "NUNCA"
-    OCASIONAL = "OCASIONAL"
-    REGULAR = "REGULAR"
-
-
 class NivelRiesgo(StrEnum):
     BAJO = "BAJO"
     MEDIO = "MEDIO"
@@ -102,31 +97,61 @@ class Moneda(StrEnum):
     COP = "COP"
 
 
+class OrigenDatos(StrEnum):
+    """De dónde salen los datos del crédito. Hoy los escribe el cliente; verificarlos
+    contra Open Finance es de BITS-224."""
+
+    DECLARADO = "DECLARADO"
+
+
 # --- datos de entrada ---
+
+EDAD_MINIMA = 18
+EDAD_MAXIMA = 65
+# La póliza permite ingresar hasta los 65 años y permanecer hasta los 75.
+EDAD_MAXIMA_AL_TERMINAR = 75
 
 
 @dataclass(frozen=True)
 class DatosCredito:
     valor_credito: Decimal
-    plazo_meses: int
-    edad: int
+    plazo_restante_meses: int
     entidad_acreedora: str
     saldo_insoluto: Decimal
 
 
 @dataclass(frozen=True)
-class CuestionarioHabitos:
-    consume_tabaco: bool
-    actividad_fisica: ActividadFisica
-    condiciones_preexistentes: bool
-    dependientes_economicos: int
+class SolicitudCotizacion:
+    """``edad`` ya viene calculada: la deriva el BFF de la fecha de nacimiento del registro."""
+
+    cliente_id: str
+    edad: int
+    datos_credito: DatosCredito
+
+
+# --- tarifa (la entrega Productos y Configuración) ---
 
 
 @dataclass(frozen=True)
-class SolicitudCotizacion:
-    cliente_id: str
-    datos_credito: DatosCredito
-    cuestionario_habitos: CuestionarioHabitos
+class FranjaTarifa:
+    edad_desde: int
+    edad_hasta: int
+    tasa_mensual_por_mil: Decimal
+
+
+@dataclass(frozen=True)
+class Tarifa:
+    """Tasa mensual por cada $1.000 de saldo según la edad. ``version`` identifica la tabla
+    con la que se calculó cada cotización."""
+
+    version: int
+    franjas: tuple[FranjaTarifa, ...]
+
+    def tasa_para(self, edad: int) -> Decimal:
+        for franja in self.franjas:
+            if franja.edad_desde <= edad <= franja.edad_hasta:
+                return franja.tasa_mensual_por_mil
+        raise ReglaNegocio(f"La tarifa no tiene una franja para la edad {edad}")
 
 
 # --- perfil de riesgo (lo devuelve PerfilRiesgoPort) ---
@@ -184,9 +209,18 @@ class Vigencia:
 
 @dataclass(frozen=True)
 class Cotizacion:
-    id: str
+    """La cotización activa de un cliente: es única, no tiene id propio y una nueva la reemplaza.
+
+    Guarda una foto de todo lo usado para calcular el precio (edad, datos del crédito, tasa y
+    versión de la tarifa, factor del perfil) para poder reconstruirlo aunque después cambien.
+    """
+
     cliente_id: str
-    estado: EstadoCotizacion
+    edad: int
+    datos_credito: DatosCredito
+    origen_datos: OrigenDatos
+    tasa: Decimal
+    version_tarifa: int
     oferta: Oferta
     perfil_riesgo: PerfilRiesgo | None
     vigencia: Vigencia
@@ -198,3 +232,9 @@ class Cotizacion:
             raise ReglaNegocio("una cotización personalizada debe incluir el perfil de riesgo")
         if not self.oferta.personalizado and self.perfil_riesgo is not None:
             raise ReglaNegocio("una cotización no personalizada no debe incluir perfil de riesgo")
+
+    def estado_en(self, ahora: datetime) -> EstadoCotizacion:
+        """``EXPIRADA`` pasada la vigencia. Se deriva al leer: no hay tareas que la actualicen."""
+        if ahora >= self.vigencia.hasta:
+            return EstadoCotizacion.EXPIRADA
+        return EstadoCotizacion.VIGENTE

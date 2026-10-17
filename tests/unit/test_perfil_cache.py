@@ -11,7 +11,7 @@ from app.domain import EfectoFactor, FactorRiesgo, NivelRiesgo, PerfilRiesgo
 
 _PERFIL = PerfilRiesgo(
     nivel_riesgo=NivelRiesgo.BAJO,
-    factores=(FactorRiesgo("Actividad física regular", EfectoFactor.POSITIVO),),
+    factores=(FactorRiesgo("Historial de pagos excelente", EfectoFactor.POSITIVO),),
     factor_ajuste=Decimal("0.90"),
 )
 

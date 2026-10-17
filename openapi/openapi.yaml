@@ -2,28 +2,41 @@ openapi: 3.1.3
 
 info:
   title: svc-cotizacion — Cotización de vida hipotecario
-  summary: Cotización personalizada de seguro de vida sobre crédito hipotecario.
+  summary: Cotización de seguro de vida sobre crédito hipotecario, una activa por cliente.
   description: |
-    Recibe los datos del crédito y el cuestionario de hábitos de un cliente
-    autenticado, pide el perfil de riesgo al servicio de Perfilamiento y devuelve
-    un precio (personalizado o, si el perfilamiento no responde, estándar).
+    Recibe la edad (ya calculada por el BFF) y los datos del crédito de un cliente
+    autenticado, lee su perfil de riesgo de Perfilamiento y la tabla de tasas de Productos,
+    y devuelve un precio (personalizado o, si el perfilamiento no responde, estándar).
 
-    Historia funcional: BITS-95 (hija de BITS-72). Perfilamiento: BITS-80.
+    Historia funcional: BITS-95 (hija de BITS-72). Perfilamiento: BITS-106.
     Diseño de referencia: pagina "Cotizacion y Rating" de David (Confluence).
     NFR: BITS-79 (latencia), BITS-81 (escalabilidad), BITS-124 (disponibilidad).
 
-    ALCANCE de esta version (0.1.x): el precio de UNA poliza (Opcion Vida).
-    Fuera de alcance: configurador de coberturas y add-ons, opcion Vida + Hogar,
-    paths APROBADA / RECHAZADA (todo eso es BITS-96); retomar formulario a medias
-    (AC-5) y bloqueo por cotizacion activa (AC-6).
+    **Una sola cotización activa por cliente.** No tiene id propio: crear una nueva reemplaza
+    la anterior (el cliente no acumula cotizaciones, compra pólizas). La activa se consulta
+    con `GET /v1/cotizaciones/actual`.
+
+    **Cálculo de la prima mensual.** `prima_base = saldo_insoluto × tasa ÷ 1.000`, redondeada
+    al peso, con la tasa de la franja de edad de la tarifa vigente. Con perfil:
+    `prima_mensual = prima_base × factor_ajuste` (redondeada al peso) y `personalizado = true`.
+    Sin perfil, o si Perfilamiento no responde: `prima_mensual = prima_base`,
+    `personalizado = false` y `perfilamiento` en `fuentesNoDisponibles`. La suma asegurada es
+    el saldo insoluto. Cada cotización guarda la tasa y la versión de tarifa con que se calculó.
+
+    **Estado.** `VIGENTE` durante 30 días desde su creación y `EXPIRADA` después. Se deriva al
+    consultar.
+
+    Alcance: el precio de UNA póliza (Opción Vida). Fuera de alcance: configurador de
+    coberturas y add-ons, Vida + Hogar, rutas APROBADA / RECHAZADA (BITS-96), estados de
+    cotización incompleta y recálculo cuando llega el perfil (BITS-224).
 
     Identidad y consentimiento los resuelven el API Gateway y el BFF; este servicio
     recibe el id del cliente en el encabezado X-Cliente-Id.
 
-    Convenciones de datos (VI-002): montos en COP como numero; ids en formato UUID.
+    Convenciones de datos (VI-002): montos en COP como numero.
 
     Errores en formato RFC 9457 (Problem Details), application/problem+json.
-  version: 0.1.0
+  version: 0.2.0
   contact:
     name: Equipo 4Bits
   license:
@@ -35,20 +48,24 @@ servers:
 
 tags:
   - name: Cotización
-    description: Generación y consulta de cotizaciones de vida hipotecario.
+    description: Generación y consulta de la cotización activa de vida hipotecario.
 
 paths:
-  /cotizaciones:
+  /v1/cotizaciones:
     post:
       operationId: crearCotizacion
       tags: [Cotización]
-      summary: Genera un precio a partir de los datos del crédito y el cuestionario
+      summary: Calcula la cotización y la deja como la activa del cliente
       description: |
-        AC-1: valida los campos, registra la solicitud y pide el perfil de riesgo.
-        AC-3: si un campo del credito esta fuera de rango (edad > 65, valor < 10.000.000
-        COP, plazo < 12 meses) responde 400 senalando el campo.
-        Si el Perfilamiento no responde a tiempo, devuelve el precio estandar con
-        personalizado: false (no es un error).
+        Valida la solicitud, lee el perfil y la tarifa, calcula el precio y guarda la cotización
+        como la activa del cliente, reemplazando la anterior si la había.
+
+        Responde 400 señalando el campo cuando la edad no está entre 18 y 65 años, o cuando el
+        crédito terminaría después de los 75 años (`edad + plazoRestanteMeses / 12 > 75`).
+
+        Si el Perfilamiento no responde a tiempo, devuelve el precio estándar con
+        personalizado: false (no es un error). Si no hay tarifa (Productos caído y sin caché),
+        responde 503.
       parameters:
         - $ref: '#/components/parameters/ClienteId'
       requestBody:
@@ -58,27 +75,23 @@ paths:
             schema: { $ref: '#/components/schemas/SolicitudCotizacion' }
       responses:
         '201':
-          description: Cotización generada.
+          description: Cotización generada. Es ahora la activa del cliente.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Cotizacion' }
         '400': { $ref: '#/components/responses/SolicitudInvalida' }
         '503': { $ref: '#/components/responses/NoSePudoCotizar' }
 
-  /cotizaciones/{id}:
+  /v1/cotizaciones/actual:
     get:
-      operationId: obtenerCotizacion
+      operationId: obtenerCotizacionActiva
       tags: [Cotización]
-      summary: Consulta una cotización ya generada (AC-4)
+      summary: Consulta la cotización activa del cliente
       parameters:
         - $ref: '#/components/parameters/ClienteId'
-        - name: id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
       responses:
         '200':
-          description: La cotización.
+          description: La cotización activa. `estado` es `EXPIRADA` si ya pasó su vigencia.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Cotizacion' }
@@ -96,26 +109,22 @@ components:
 
   responses:
     SolicitudInvalida:
-      description: Solicitud mal formada, esquema inválido o un campo fuera de rango (AC-3).
+      description: Solicitud mal formada, esquema inválido, edad fuera de rango o plazo que supera la edad máxima.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problema' }
     NoEncontrado:
-      description: No existe una cotización con ese id para el cliente.
+      description: El cliente no tiene una cotización activa.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problema' }
     NoSePudoCotizar:
-      description: No se pudo calcular ni el precio estándar (perfilamiento y tarifas no disponibles).
+      description: No se pudo calcular ni el precio estándar (tarifa no disponible).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problema' }
 
   schemas:
-
-    ActividadFisica:
-      type: string
-      enum: [NUNCA, OCASIONAL, REGULAR]
 
     NivelRiesgo:
       type: string
@@ -133,25 +142,27 @@ components:
       type: string
       enum: [COP]
 
+    OrigenDatos:
+      type: string
+      enum: [DECLARADO]
+      description: |
+        De dónde salen los datos del crédito. Hoy los escribe el cliente (`DECLARADO`);
+        verificarlos contra la fuente es de BITS-224.
+
     DatosCredito:
       type: object
       additionalProperties: false
-      required: [valorCredito, plazoMeses, edad, entidadAcreedora, saldoInsoluto]
+      required: [valorCredito, plazoRestanteMeses, entidadAcreedora, saldoInsoluto]
       properties:
         valorCredito:
           type: number
           minimum: 10000000
-          description: Monto del crédito en COP. AC-3 rechaza < 10.000.000.
-        plazoMeses:
+          description: Monto del crédito en COP.
+        plazoRestanteMeses:
           type: integer
-          minimum: 12
+          minimum: 1
           maximum: 480
-          description: Plazo del crédito en meses. AC-3 rechaza < 12.
-        edad:
-          type: integer
-          minimum: 18
-          maximum: 65
-          description: Edad del solicitante. AC-3 rechaza > 65.
+          description: Meses que le faltan al crédito. Con la edad, no puede pasar de los 75 años.
         entidadAcreedora:
           type: string
           minLength: 2
@@ -161,23 +172,17 @@ components:
           exclusiveMinimum: 0
           description: Saldo pendiente del crédito en COP.
 
-    CuestionarioHabitos:
-      type: object
-      additionalProperties: false
-      required: [consumeTabaco, actividadFisica, condicionesPreexistentes, dependientesEconomicos]
-      properties:
-        consumeTabaco: { type: boolean }
-        actividadFisica: { $ref: '#/components/schemas/ActividadFisica' }
-        condicionesPreexistentes: { type: boolean }
-        dependientesEconomicos: { type: integer, minimum: 0, maximum: 20 }
-
     SolicitudCotizacion:
       type: object
       additionalProperties: false
-      required: [datosCredito, cuestionarioHabitos]
+      required: [edad, datosCredito]
       properties:
+        edad:
+          type: integer
+          description: |
+            Años cumplidos del cliente. Lo calcula el BFF desde la fecha de nacimiento del
+            registro; el servicio exige que esté entre 18 y 65.
         datosCredito: { $ref: '#/components/schemas/DatosCredito' }
-        cuestionarioHabitos: { $ref: '#/components/schemas/CuestionarioHabitos' }
 
     FactorRiesgo:
       type: object
@@ -220,8 +225,8 @@ components:
           description: Cobertura = saldo insoluto del crédito (protección de la deuda).
         coberturaMeses:
           type: integer
-          minimum: 12
-          description: Igual al plazo del crédito.
+          minimum: 1
+          description: Igual al plazo restante del crédito.
         moneda: { $ref: '#/components/schemas/Moneda' }
         personalizado:
           type: boolean
@@ -242,11 +247,12 @@ components:
     Cotizacion:
       type: object
       additionalProperties: false
-      required: [id, estado, producto, oferta, vigenciaCotizacion, creadaEn]
+      required: [estado, producto, datosCredito, origenDatos, oferta, vigenciaCotizacion, creadaEn]
       properties:
-        id: { type: string, format: uuid }
         estado: { $ref: '#/components/schemas/EstadoCotizacion' }
         producto: { type: string, const: VIDA_HIPOTECARIO }
+        datosCredito: { $ref: '#/components/schemas/DatosCredito' }
+        origenDatos: { $ref: '#/components/schemas/OrigenDatos' }
         oferta: { $ref: '#/components/schemas/Oferta' }
         perfilRiesgo:
           description: Presente solo cuando oferta.personalizado es true.

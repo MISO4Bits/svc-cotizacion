@@ -72,3 +72,21 @@ def perfil_desde_dict(data: dict) -> PerfilRiesgo:
         factor_ajuste=Decimal(str(data["factorAjuste"])),
         fuentes_no_disponibles=tuple(data.get("fuentesNoDisponibles", [])),
     )
+
+
+def perfil_a_dict(perfil: PerfilRiesgo) -> dict:
+    """Inverso de ``perfil_desde_dict``: misma forma de JSON, para el caché y para guardar la
+    foto del perfil dentro de la cotización."""
+    return {
+        "nivelRiesgo": str(perfil.nivel_riesgo),
+        "factorAjuste": str(perfil.factor_ajuste),
+        "factores": [
+            {
+                "descripcion": f.descripcion,
+                "efecto": str(f.efecto),
+                "pesoRelativo": str(f.peso_relativo) if f.peso_relativo is not None else None,
+            }
+            for f in perfil.factores
+        ],
+        "fuentesNoDisponibles": list(perfil.fuentes_no_disponibles),
+    }
