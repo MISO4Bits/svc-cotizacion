@@ -16,7 +16,7 @@ _RESPUESTA_OK = {
     "nivelRiesgo": "BAJO",
     "factorAjuste": 0.9,
     "factores": [
-        {"descripcion": "Actividad física regular", "efecto": "POSITIVO", "pesoRelativo": 0.2}
+        {"descripcion": "Historial de pagos excelente", "efecto": "POSITIVO", "pesoRelativo": 0.2}
     ],
     "fuentesNoDisponibles": [],
 }
@@ -44,7 +44,7 @@ async def test_perfil_camino_feliz():
         await cliente.aclose()
     assert perfil.nivel_riesgo == NivelRiesgo.BAJO
     assert perfil.factor_ajuste == Decimal("0.9")
-    assert perfil.factores[0].descripcion == "Actividad física regular"
+    assert perfil.factores[0].descripcion == "Historial de pagos excelente"
 
 
 @respx.mock
