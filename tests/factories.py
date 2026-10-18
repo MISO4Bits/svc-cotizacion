@@ -21,10 +21,13 @@ from app.domain import (
 
 
 def datos_credito(
-    saldo: str = "140000000", plazo: int = 240, entidad: str = "Banco X"
+    saldo: str = "140000000",
+    plazo: int = 240,
+    entidad: str = "Banco X",
+    valor: str = "150000000",
 ) -> DatosCredito:
     return DatosCredito(
-        valor_credito=Decimal("150000000"),
+        valor_credito=Decimal(valor),
         plazo_restante_meses=plazo,
         entidad_acreedora=entidad,
         saldo_insoluto=Decimal(saldo),

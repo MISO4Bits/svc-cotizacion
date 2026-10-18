@@ -12,6 +12,8 @@ from app.domain import (
     EDAD_MAXIMA,
     EDAD_MAXIMA_AL_TERMINAR,
     EDAD_MINIMA,
+    CoberturaPrecio,
+    CodigoCobertura,
     Cotizacion,
     DatosCredito,
     DependenciaNoDisponible,
@@ -31,6 +33,11 @@ VIGENCIA_COTIZACION = timedelta(days=30)
 
 _PESO = Decimal("1")
 _MIL = Decimal("1000")
+
+# Cobertura opcional de Hogar: tarifa fija (Licitación 002-2025 de Banco Serfinanza).
+HOGAR_SUMA_ASEGURADA_TOPE = Decimal("240000000")
+HOGAR_TASA_MENSUAL_POR_MIL = Decimal("0.099")
+IVA = Decimal("0.19")  # solo Hogar; el seguro de vida está excluido (Estatuto Tributario, art. 427)
 
 
 def validar_solicitud(solicitud: SolicitudCotizacion) -> None:
@@ -74,6 +81,38 @@ def calcular_prima_base(datos: DatosCredito, tasa_mensual_por_mil: Decimal) -> D
     """Prima mensual con tarifa estándar (sin ajuste por perfil), redondeada al peso:
     ``saldo_insoluto × tasa ÷ 1.000``."""
     return _a_pesos(datos.saldo_insoluto * tasa_mensual_por_mil / _MIL)
+
+
+def calcular_cobertura_hogar(datos: DatosCredito) -> CoberturaPrecio:
+    """Cobertura opcional de Hogar (incendio y terremoto). Tarifa fija, sin ajuste por perfil.
+
+    ``suma_asegurada = min(tope, valor_credito)``; ``prima_neta = suma_asegurada × tasa ÷ 1.000``;
+    ``iva = prima_neta × 19 %``. Cada monto se redondea al peso por separado.
+    """
+    suma_asegurada = min(HOGAR_SUMA_ASEGURADA_TOPE, datos.valor_credito)
+    prima_neta = _a_pesos(suma_asegurada * HOGAR_TASA_MENSUAL_POR_MIL / _MIL)
+    return CoberturaPrecio(
+        codigo=CodigoCobertura.HOGAR,
+        obligatoria=False,
+        suma_asegurada=suma_asegurada,
+        prima_neta=prima_neta,
+        iva=_a_pesos(prima_neta * IVA),
+    )
+
+
+def calcular_desglose(datos: DatosCredito, oferta: Oferta) -> tuple[CoberturaPrecio, ...]:
+    """Precio de cada cobertura: Vida (obligatoria, sin IVA, con la prima de la oferta) y Hogar.
+
+    Se deriva de lo que la cotización ya guarda, por eso no se persiste.
+    """
+    vida = CoberturaPrecio(
+        codigo=CodigoCobertura.VIDA,
+        obligatoria=True,
+        suma_asegurada=oferta.suma_asegurada,
+        prima_neta=oferta.prima_mensual,
+        iva=Decimal(0),
+    )
+    return (vida, calcular_cobertura_hogar(datos))
 
 
 class CotizacionService:

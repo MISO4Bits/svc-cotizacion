@@ -26,9 +26,18 @@ info:
     **Estado.** `VIGENTE` durante 30 días desde su creación y `EXPIRADA` después. Se deriva al
     consultar.
 
-    Alcance: el precio de UNA póliza (Opción Vida). Fuera de alcance: configurador de
-    coberturas y add-ons, Vida + Hogar, rutas APROBADA / RECHAZADA (BITS-96), estados de
-    cotización incompleta y recálculo cuando llega el perfil (BITS-224).
+    **Cobertura opcional de Hogar (incendio y terremoto).** Además de Vida, la respuesta trae
+    en `oferta.desglose` el precio de cada cobertura, con su IVA. Hogar es opcional y NO viene
+    marcada por defecto: el servicio no guarda la selección del cliente ni devuelve totales;
+    el front suma `primaNeta`, `iva` y `primaTotal` de las coberturas que el cliente elija.
+    - Suma asegurada de Hogar: `min(240.000.000, valorCredito)`.
+    - `primaNeta = sumaAsegurada × 0,099 ÷ 1.000`, redondeada al peso (ROUND_HALF_UP).
+    - `iva = primaNeta × 0,19`, redondeado al peso (ROUND_HALF_UP). Vida no lleva IVA.
+    - `primaTotal = primaNeta + iva`. El factor de ajuste del perfil no afecta a Hogar.
+
+    Alcance: el precio de Vida y de la cobertura opcional de Hogar. Fuera de alcance:
+    persistir la selección de coberturas, servicios adicionales del hogar, rutas APROBADA /
+    RECHAZADA, estados de cotización incompleta y recálculo cuando llega el perfil (BITS-224).
 
     Identidad y consentimiento los resuelven el API Gateway y el BFF; este servicio
     recibe el id del cliente en el encabezado X-Cliente-Id.
@@ -36,7 +45,7 @@ info:
     Convenciones de datos (VI-002): montos en COP como numero.
 
     Errores en formato RFC 9457 (Problem Details), application/problem+json.
-  version: 0.2.0
+  version: 0.3.0
   contact:
     name: Equipo 4Bits
   license:
@@ -209,7 +218,29 @@ components:
     Oferta:
       type: object
       additionalProperties: false
-      required: [primaMensual, primaBaseMensual, sumaAsegurada, coberturaMeses, moneda, personalizado]
+      required: [primaMensual, primaBaseMensual, sumaAsegurada, coberturaMeses, moneda, personalizado, desglose]
+      example:
+        primaMensual: 39734
+        primaBaseMensual: 46746
+        sumaAsegurada: 320000000
+        coberturaMeses: 240
+        moneda: COP
+        personalizado: true
+        fuentesNoDisponibles: []
+        desglose:
+          coberturas:
+            - codigo: VIDA
+              obligatoria: true
+              sumaAsegurada: 320000000
+              primaNeta: 39734
+              iva: 0
+              primaTotal: 39734
+            - codigo: HOGAR
+              obligatoria: false
+              sumaAsegurada: 240000000
+              primaNeta: 23760
+              iva: 4514
+              primaTotal: 28274
       properties:
         primaMensual:
           type: number
@@ -235,6 +266,53 @@ components:
           type: array
           items: { type: string }
           description: Fuentes de perfilamiento que no respondieron.
+        desglose: { $ref: '#/components/schemas/Desglose' }
+
+    CodigoCobertura:
+      type: string
+      enum: [VIDA, HOGAR]
+
+    CoberturaPrecio:
+      type: object
+      additionalProperties: false
+      required: [codigo, obligatoria, sumaAsegurada, primaNeta, iva, primaTotal]
+      properties:
+        codigo: { $ref: '#/components/schemas/CodigoCobertura' }
+        obligatoria:
+          type: boolean
+          description: true para VIDA (la exige el crédito), false para HOGAR.
+        sumaAsegurada:
+          type: number
+          minimum: 0
+          description: |
+            VIDA: saldo insoluto del crédito. HOGAR: `min(240.000.000, valorCredito)`.
+        primaNeta:
+          type: number
+          minimum: 0
+          description: Prima mensual sin IVA. En VIDA es la prima ya ajustada por perfil (igual a `oferta.primaMensual`).
+        iva:
+          type: number
+          minimum: 0
+          description: IVA mensual de la cobertura. 0 en VIDA; 19 % de `primaNeta` en HOGAR.
+        primaTotal:
+          type: number
+          minimum: 0
+          description: Prima mensual con IVA (`primaNeta + iva`). Es lo que el front suma al marcar la cobertura.
+
+    Desglose:
+      type: object
+      additionalProperties: false
+      required: [coberturas]
+      description: |
+        Precio de cada cobertura. No trae totales: el servicio no guarda la selección del
+        cliente, así que el front suma los `primaNeta`, `iva` y `primaTotal` de las coberturas
+        que el cliente elija.
+      properties:
+        coberturas:
+          type: array
+          minItems: 2
+          description: Todas las coberturas con su precio, VIDA y HOGAR.
+          items: { $ref: '#/components/schemas/CoberturaPrecio' }
 
     Vigencia:
       type: object

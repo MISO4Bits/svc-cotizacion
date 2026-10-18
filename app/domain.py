@@ -197,6 +197,35 @@ class Oferta:
             raise ReglaNegocio("sin personalización, la prima debe ser igual a la prima base")
 
 
+class CodigoCobertura(StrEnum):
+    VIDA = "VIDA"
+    HOGAR = "HOGAR"
+
+
+@dataclass(frozen=True)
+class CoberturaPrecio:
+    """Precio mensual de una cobertura. ``prima_total = prima_neta + iva``."""
+
+    codigo: CodigoCobertura
+    obligatoria: bool
+    suma_asegurada: Decimal
+    prima_neta: Decimal
+    iva: Decimal
+
+    def __post_init__(self) -> None:
+        for nombre, valor in (
+            ("suma_asegurada", self.suma_asegurada),
+            ("prima_neta", self.prima_neta),
+            ("iva", self.iva),
+        ):
+            if valor < 0:
+                raise ReglaNegocio(f"{nombre} no puede ser negativo")
+
+    @property
+    def prima_total(self) -> Decimal:
+        return self.prima_neta + self.iva
+
+
 @dataclass(frozen=True)
 class Vigencia:
     desde: datetime

@@ -6,12 +6,19 @@ import pytest
 
 from app.adapters.fakes import FakeCotizacionRepository, FakeTarifa
 from app.domain import (
+    CodigoCobertura,
     DependenciaNoDisponible,
     PerfilRiesgo,
     RecursoNoEncontrado,
     SolicitudInvalida,
 )
-from app.services import CotizacionService, calcular_prima_base, validar_solicitud
+from app.services import (
+    CotizacionService,
+    calcular_cobertura_hogar,
+    calcular_desglose,
+    calcular_prima_base,
+    validar_solicitud,
+)
 from tests.factories import datos_credito, perfil, solicitud
 
 
@@ -181,3 +188,57 @@ async def test_cada_cliente_tiene_su_propia_cotizacion_activa():
 async def test_sin_cotizacion_activa_no_se_encuentra():
     with pytest.raises(RecursoNoEncontrado):
         await _servicio().obtener_cotizacion_activa("cli-sin-cotizacion")
+
+
+# --- cobertura opcional de Hogar ---
+# (valor del crédito, suma asegurada, prima neta, IVA, total)
+EJEMPLOS_HOGAR = [
+    ("150000000", "150000000", "14850", "2822", "17672"),  # IVA 2.821,5 sube con ROUND_HALF_UP
+    ("220000000", "220000000", "21780", "4138", "25918"),
+    ("320000000", "240000000", "23760", "4514", "28274"),  # se pasa del tope
+    ("240000000", "240000000", "23760", "4514", "28274"),  # justo en el tope
+]
+
+
+@pytest.mark.parametrize(("valor", "suma", "neta", "iva", "total"), EJEMPLOS_HOGAR)
+def test_hogar_suma_asegurada_con_tope_e_iva(valor, suma, neta, iva, total):
+    hogar = calcular_cobertura_hogar(datos_credito(valor=valor))
+
+    assert hogar.codigo == CodigoCobertura.HOGAR
+    assert hogar.obligatoria is False
+    assert hogar.suma_asegurada == Decimal(suma)
+    assert hogar.prima_neta == Decimal(neta)
+    assert hogar.iva == Decimal(iva)
+    assert hogar.prima_total == Decimal(total)
+
+
+async def test_el_desglose_trae_vida_sin_iva_y_hogar():
+    cot = await _servicio().crear_cotizacion(solicitud())
+
+    vida, hogar = calcular_desglose(cot.datos_credito, cot.oferta)
+
+    assert vida.codigo == CodigoCobertura.VIDA
+    assert vida.obligatoria is True
+    assert vida.suma_asegurada == cot.oferta.suma_asegurada
+    assert vida.prima_neta == cot.oferta.prima_mensual
+    assert vida.iva == 0
+    assert vida.prima_total == cot.oferta.prima_mensual
+    assert hogar.codigo == CodigoCobertura.HOGAR
+
+
+async def test_el_factor_del_perfil_no_afecta_a_hogar():
+    con_descuento = await _servicio(_PerfilOk("0.85")).crear_cotizacion(solicitud())
+    con_recargo = await _servicio(_PerfilOk("1.65")).crear_cotizacion(solicitud())
+
+    assert (
+        calcular_desglose(con_descuento.datos_credito, con_descuento.oferta)[1]
+        == (calcular_desglose(con_recargo.datos_credito, con_recargo.oferta)[1])
+    )
+
+
+async def test_sin_perfil_el_desglose_usa_la_prima_estandar_de_vida():
+    cot = await _servicio(_PerfilInexistente()).crear_cotizacion(solicitud())
+
+    vida, _ = calcular_desglose(cot.datos_credito, cot.oferta)
+
+    assert vida.prima_neta == cot.oferta.prima_base_mensual
