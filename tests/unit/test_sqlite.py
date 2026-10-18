@@ -68,3 +68,38 @@ async def test_la_cotizacion_sobrevive_a_un_reinicio_del_servicio(tmp_path):
     await otro_arranque.init()  # CREATE TABLE IF NOT EXISTS: no borra nada
 
     assert (await SqliteCotizacionRepository(otro_arranque).obtener_activa("cli-1")).edad == 38
+
+
+async def test_guarda_y_recupera_la_cobertura_de_hogar(repo):
+    original = cotizacion(personalizado=True)
+
+    await repo.reemplazar(original)
+
+    recuperada = await repo.obtener_activa("cli-1")
+    assert recuperada.hogar == original.hogar
+    assert recuperada.hogar.prima_total == 17672
+
+
+async def test_una_tabla_anterior_a_hogar_se_migra_y_sus_filas_quedan_sin_hogar(tmp_path):
+    import aiosqlite
+
+    ruta = str(tmp_path / "vieja.db")
+    async with aiosqlite.connect(ruta) as conn:
+        await conn.execute("CREATE TABLE cotizacion_activa (cliente_id TEXT PRIMARY KEY)")
+        await conn.commit()
+    db = SqliteDatabase(ruta)
+
+    await db.init()
+    await db.init()  # idempotente: la columna ya existe
+
+    async with db.connect() as conn:
+        columnas = {
+            f["name"] for f in await conn.execute_fetchall("PRAGMA table_info(cotizacion_activa)")
+        }
+    assert "hogar" in columnas
+
+
+async def test_una_cotizacion_sin_hogar_se_recupera_sin_hogar(repo):
+    await repo.reemplazar(cotizacion(sin_hogar=True))
+
+    assert (await repo.obtener_activa("cli-1")).hogar is None

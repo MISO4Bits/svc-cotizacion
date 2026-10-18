@@ -25,6 +25,7 @@ _RESPUESTA = {
         {"edadDesde": 18, "edadHasta": 40, "tasaMensualPorMil": 0.1},
         {"edadDesde": 41, "edadHasta": 65, "tasaMensualPorMil": 0.9},
     ],
+    "hogar": {"tasaMensualPorMil": 0.12, "sumaAseguradaMaxima": 300000000, "iva": 0.16},
 }
 
 
@@ -50,6 +51,10 @@ async def test_el_cliente_pide_la_tarifa_del_mercado_y_la_parsea():
     assert tarifa.version == 3
     assert tarifa.tasa_para(30) == Decimal("0.1")
     assert tarifa.tasa_para(50) == Decimal("0.9")
+    # La misma respuesta trae la tarifa de Hogar: una sola llamada sirve para cotizar.
+    assert tarifa.hogar.tasa_mensual_por_mil == Decimal("0.12")
+    assert tarifa.hogar.suma_asegurada_maxima == Decimal("300000000")
+    assert tarifa.hogar.iva == Decimal("0.16")
 
 
 @respx.mock

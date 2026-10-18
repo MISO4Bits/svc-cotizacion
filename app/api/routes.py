@@ -7,8 +7,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Request, status
 
 from app.api.schemas import (
+    CoberturaPrecioOut,
     CotizacionOut,
     DatosCreditoOut,
+    DesgloseOut,
     FactorRiesgoOut,
     OfertaOut,
     PerfilRiesgoOut,
@@ -17,7 +19,7 @@ from app.api.schemas import (
 )
 from app.domain import Cotizacion, DatosCredito, SolicitudCotizacion
 from app.logging_utils import sanear_para_log
-from app.services import CotizacionService
+from app.services import CotizacionService, calcular_desglose
 
 router = APIRouter(tags=["Cotización"])
 
@@ -81,6 +83,19 @@ def _a_salida(cot: Cotizacion) -> CotizacionOut:
             moneda=str(o.moneda),
             personalizado=o.personalizado,
             fuentes_no_disponibles=list(o.fuentes_no_disponibles),
+            desglose=DesgloseOut(
+                coberturas=[
+                    CoberturaPrecioOut(
+                        codigo=str(c.codigo),
+                        obligatoria=c.obligatoria,
+                        suma_asegurada=float(c.suma_asegurada),
+                        prima_neta=float(c.prima_neta),
+                        iva=float(c.iva),
+                        prima_total=float(c.prima_total),
+                    )
+                    for c in calcular_desglose(o, cot.hogar)
+                ]
+            ),
         ),
         perfil_riesgo=perfil,
         vigencia_cotizacion=VigenciaOut(desde=cot.vigencia.desde, hasta=cot.vigencia.hasta),

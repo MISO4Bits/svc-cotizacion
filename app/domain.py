@@ -140,12 +140,24 @@ class FranjaTarifa:
 
 
 @dataclass(frozen=True)
+class TarifaHogar:
+    """Cobertura opcional de Hogar: tarifa fija. La suma asegurada es
+    ``min(suma_asegurada_maxima, valor del crédito)``; ``iva`` es una fracción (0,19)."""
+
+    tasa_mensual_por_mil: Decimal
+    suma_asegurada_maxima: Decimal
+    iva: Decimal
+
+
+@dataclass(frozen=True)
 class Tarifa:
-    """Tasa mensual por cada $1.000 de saldo según la edad. ``version`` identifica la tabla
-    con la que se calculó cada cotización."""
+    """Tasa mensual por cada $1.000 de saldo según la edad (Vida) y tarifa de Hogar, entregadas
+    por Productos en una sola llamada. ``version`` identifica la tarifa con la que se calculó
+    cada cotización."""
 
     version: int
     franjas: tuple[FranjaTarifa, ...]
+    hogar: TarifaHogar
 
     def tasa_para(self, edad: int) -> Decimal:
         for franja in self.franjas:
@@ -197,6 +209,35 @@ class Oferta:
             raise ReglaNegocio("sin personalización, la prima debe ser igual a la prima base")
 
 
+class CodigoCobertura(StrEnum):
+    VIDA = "VIDA"
+    HOGAR = "HOGAR"
+
+
+@dataclass(frozen=True)
+class CoberturaPrecio:
+    """Precio mensual de una cobertura. ``prima_total = prima_neta + iva``."""
+
+    codigo: CodigoCobertura
+    obligatoria: bool
+    suma_asegurada: Decimal
+    prima_neta: Decimal
+    iva: Decimal
+
+    def __post_init__(self) -> None:
+        for nombre, valor in (
+            ("suma_asegurada", self.suma_asegurada),
+            ("prima_neta", self.prima_neta),
+            ("iva", self.iva),
+        ):
+            if valor < 0:
+                raise ReglaNegocio(f"{nombre} no puede ser negativo")
+
+    @property
+    def prima_total(self) -> Decimal:
+        return self.prima_neta + self.iva
+
+
 @dataclass(frozen=True)
 class Vigencia:
     desde: datetime
@@ -213,6 +254,8 @@ class Cotizacion:
 
     Guarda una foto de todo lo usado para calcular el precio (edad, datos del crédito, tasa y
     versión de la tarifa, factor del perfil) para poder reconstruirlo aunque después cambien.
+    ``hogar`` es el precio de la cobertura opcional de Hogar tal como se calculó con esa tarifa;
+    es ``None`` solo en cotizaciones guardadas antes de que existiera.
     """
 
     cliente_id: str
@@ -226,6 +269,7 @@ class Cotizacion:
     vigencia: Vigencia
     creada_en: datetime
     producto: str = PRODUCTO
+    hogar: CoberturaPrecio | None = None
 
     def __post_init__(self) -> None:
         if self.oferta.personalizado and self.perfil_riesgo is None:

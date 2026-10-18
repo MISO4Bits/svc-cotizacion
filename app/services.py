@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -12,6 +13,8 @@ from app.domain import (
     EDAD_MAXIMA,
     EDAD_MAXIMA_AL_TERMINAR,
     EDAD_MINIMA,
+    CoberturaPrecio,
+    CodigoCobertura,
     Cotizacion,
     DatosCredito,
     DependenciaNoDisponible,
@@ -21,6 +24,7 @@ from app.domain import (
     PerfilRiesgo,
     SolicitudCotizacion,
     SolicitudInvalida,
+    TarifaHogar,
     Vigencia,
 )
 from app.logging_utils import sanear_para_log
@@ -76,6 +80,36 @@ def calcular_prima_base(datos: DatosCredito, tasa_mensual_por_mil: Decimal) -> D
     return _a_pesos(datos.saldo_insoluto * tasa_mensual_por_mil / _MIL)
 
 
+def calcular_cobertura_hogar(datos: DatosCredito, tarifa: TarifaHogar) -> CoberturaPrecio:
+    """Cobertura opcional de Hogar (incendio y terremoto). Tarifa fija, sin ajuste por perfil.
+
+    ``suma_asegurada = min(tope, valor_credito)``; ``prima_neta = suma_asegurada × tasa ÷ 1.000``;
+    ``iva = prima_neta × iva`` (el seguro de vida está excluido). Cada monto se redondea al peso
+    por separado.
+    """
+    suma_asegurada = min(tarifa.suma_asegurada_maxima, datos.valor_credito)
+    prima_neta = _a_pesos(suma_asegurada * tarifa.tasa_mensual_por_mil / _MIL)
+    return CoberturaPrecio(
+        codigo=CodigoCobertura.HOGAR,
+        obligatoria=False,
+        suma_asegurada=suma_asegurada,
+        prima_neta=prima_neta,
+        iva=_a_pesos(prima_neta * tarifa.iva),
+    )
+
+
+def calcular_desglose(oferta: Oferta, hogar: CoberturaPrecio) -> tuple[CoberturaPrecio, ...]:
+    """Precio de cada cobertura: Vida (obligatoria, sin IVA, con la prima de la oferta) y Hogar."""
+    vida = CoberturaPrecio(
+        codigo=CodigoCobertura.VIDA,
+        obligatoria=True,
+        suma_asegurada=oferta.suma_asegurada,
+        prima_neta=oferta.prima_mensual,
+        iva=Decimal(0),
+    )
+    return (vida, hogar)
+
+
 class CotizacionService:
     def __init__(
         self,
@@ -127,6 +161,7 @@ class CotizacionService:
             perfil_riesgo=perfil,
             vigencia=Vigencia(ahora, ahora + VIGENCIA_COTIZACION),
             creada_en=ahora,
+            hogar=calcular_cobertura_hogar(datos, tarifa.hogar),
         )
         await self._repositorio.reemplazar(cotizacion)
         logger.info(
@@ -140,7 +175,14 @@ class CotizacionService:
         logger.info(
             "obtener_cotizacion_activa: consultando cliente_id=%s", sanear_para_log(cliente_id)
         )
-        return await self._repositorio.obtener_activa(cliente_id)
+        cotizacion = await self._repositorio.obtener_activa(cliente_id)
+        if cotizacion.hogar is None:
+            # Cotización guardada antes de la cobertura de Hogar: se completa con la tarifa vigente.
+            tarifa = await self._tarifa.obtener()
+            cotizacion = replace(
+                cotizacion, hogar=calcular_cobertura_hogar(cotizacion.datos_credito, tarifa.hogar)
+            )
+        return cotizacion
 
     async def _perfil_o_ninguno(self, cliente_id: str) -> PerfilRiesgo | None:
         try:

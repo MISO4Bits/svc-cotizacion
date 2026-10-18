@@ -161,3 +161,37 @@ async def test_sin_header_cliente_devuelve_400(client):
     resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA)
 
     assert resp.status_code == 400
+
+
+async def test_la_oferta_trae_el_desglose_con_vida_y_hogar(client):
+    resp = await client.post(
+        "/v1/cotizaciones", json=_con_credito(valorCredito=320000000), headers=HEADERS
+    )
+
+    oferta = resp.json()["oferta"]
+    vida, hogar = oferta["desglose"]["coberturas"]
+    assert vida == {
+        "codigo": "VIDA",
+        "obligatoria": True,
+        "sumaAsegurada": oferta["sumaAsegurada"],
+        "primaNeta": oferta["primaMensual"],
+        "iva": 0,
+        "primaTotal": oferta["primaMensual"],
+    }
+    assert hogar == {
+        "codigo": "HOGAR",
+        "obligatoria": False,
+        "sumaAsegurada": 240000000,
+        "primaNeta": 23760,
+        "iva": 4514,
+        "primaTotal": 28274,
+    }
+    assert set(oferta["desglose"]) == {"coberturas"}
+
+
+async def test_la_activa_devuelve_el_mismo_desglose(client):
+    creada = (await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)).json()
+
+    actual = (await client.get("/v1/cotizaciones/actual", headers=HEADERS)).json()
+
+    assert actual["oferta"]["desglose"] == creada["oferta"]["desglose"]

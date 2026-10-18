@@ -1,7 +1,10 @@
 """Adaptador HTTP hacia Productos y Configuración (implementa ``TarifaPort``).
 
   GET {base}/v1/tarifas/vida-hipotecario?mercado=CO
-  200: { mercado, producto, version, franjas: [{ edadDesde, edadHasta, tasaMensualPorMil }] }
+  200: { mercado, producto, version, franjas: [{ edadDesde, edadHasta, tasaMensualPorMil }],
+         hogar: { tasaMensualPorMil, sumaAseguradaMaxima, iva } }
+
+Una sola llamada trae la tabla de Vida por edad y la tarifa de Hogar.
 
 Solo se llama cuando la tarifa no está en caché (ver ``tarifa_cache.py``). Productos es
 back-office y está aislado por disponibilidad: si no responde, ``DependenciaNoDisponible``
@@ -13,7 +16,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from app.domain import DependenciaNoDisponible, FranjaTarifa, Tarifa
+from app.domain import DependenciaNoDisponible, FranjaTarifa, Tarifa, TarifaHogar
 from app.resilience import ResilientHttpClient
 
 logger = logging.getLogger("cotizacion.adapters.tarifa")
@@ -44,6 +47,7 @@ class TarifaClient:
 def tarifa_desde_dict(data: dict) -> Tarifa:
     """Parsea la tarifa recibida de Productos — reusado por ``redis_cache.py`` para
     deserializarla desde el caché, misma forma exacta de JSON."""
+    hogar = data["hogar"]
     return Tarifa(
         version=int(data["version"]),
         franjas=tuple(
@@ -53,6 +57,11 @@ def tarifa_desde_dict(data: dict) -> Tarifa:
                 tasa_mensual_por_mil=Decimal(str(f["tasaMensualPorMil"])),
             )
             for f in data["franjas"]
+        ),
+        hogar=TarifaHogar(
+            tasa_mensual_por_mil=Decimal(str(hogar["tasaMensualPorMil"])),
+            suma_asegurada_maxima=Decimal(str(hogar["sumaAseguradaMaxima"])),
+            iva=Decimal(str(hogar["iva"])),
         ),
     )
 
@@ -68,4 +77,9 @@ def tarifa_a_dict(tarifa: Tarifa) -> dict:
             }
             for f in tarifa.franjas
         ],
+        "hogar": {
+            "tasaMensualPorMil": str(tarifa.hogar.tasa_mensual_por_mil),
+            "sumaAseguradaMaxima": str(tarifa.hogar.suma_asegurada_maxima),
+            "iva": str(tarifa.hogar.iva),
+        },
     }

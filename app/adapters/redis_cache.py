@@ -88,7 +88,12 @@ class RedisTarifaCache:  # pragma: no cover
             return None
         if crudo is None:
             return None
-        return tarifa_desde_dict(json.loads(crudo))
+        try:
+            return tarifa_desde_dict(json.loads(crudo))
+        except (KeyError, ValueError):
+            # Entrada guardada antes de que la tarifa trajera Hogar: se trata como miss.
+            logger.warning("redis_cache: tarifa en caché con formato anterior, se descarta")
+            return None
 
     async def guardar(self, tarifa: Tarifa) -> None:
         try:

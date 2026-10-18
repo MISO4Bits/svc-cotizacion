@@ -14,6 +14,7 @@ from app.domain import (
     PerfilRiesgo,
     RecursoNoEncontrado,
     Tarifa,
+    TarifaHogar,
 )
 
 
@@ -60,9 +61,9 @@ class FakeCache:
         self._por_cliente.pop(cliente_id, None)
 
 
-# Tabla de la historia BITS-95 (misma que la semilla de Productos, versión 1).
+# Tabla de la historia BITS-95 y tarifa de Hogar (misma que la semilla de Productos, versión 2).
 TARIFA_SEMILLA = Tarifa(
-    version=1,
+    version=2,
     franjas=tuple(
         FranjaTarifa(desde, hasta, Decimal(tasa))
         for desde, hasta, tasa in (
@@ -76,6 +77,11 @@ TARIFA_SEMILLA = Tarifa(
             (55, 59, "0.826"),
             (60, 65, "1.184"),
         )
+    ),
+    hogar=TarifaHogar(
+        tasa_mensual_por_mil=Decimal("0.099"),
+        suma_asegurada_maxima=Decimal("240000000"),
+        iva=Decimal("0.19"),
     ),
 )
 
