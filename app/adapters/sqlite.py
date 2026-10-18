@@ -18,6 +18,8 @@ import aiosqlite
 
 from app.adapters.perfilador_client import perfil_a_dict, perfil_desde_dict
 from app.domain import (
+    CoberturaPrecio,
+    CodigoCobertura,
     Cotizacion,
     DatosCredito,
     Moneda,
@@ -48,17 +50,21 @@ CREATE TABLE IF NOT EXISTS cotizacion_activa (
     perfil TEXT,
     vigencia_desde TEXT NOT NULL,
     vigencia_hasta TEXT NOT NULL,
-    creada_en TEXT NOT NULL
+    creada_en TEXT NOT NULL,
+    hogar TEXT
 );
 """
+
+# Tablas creadas antes de la cobertura de Hogar no tienen la columna ``hogar``.
+_AGREGAR_HOGAR = "ALTER TABLE cotizacion_activa ADD COLUMN hogar TEXT"
 
 _REEMPLAZAR = """
 INSERT OR REPLACE INTO cotizacion_activa (
     cliente_id, edad, valor_credito, plazo_restante_meses, entidad_acreedora, saldo_insoluto,
     origen_datos, tasa, version_tarifa, prima_base, prima_mensual, suma_asegurada,
     cobertura_meses, moneda, personalizado, fuentes_no_disponibles, perfil,
-    vigencia_desde, vigencia_hasta, creada_en
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    vigencia_desde, vigencia_hasta, creada_en, hogar
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -69,6 +75,12 @@ class SqliteDatabase:
     async def init(self) -> None:
         async with self.connect() as conn:
             await conn.executescript(_SCHEMA)
+            columnas = {
+                fila["name"]
+                for fila in await conn.execute_fetchall("PRAGMA table_info(cotizacion_activa)")
+            }
+            if "hogar" not in columnas:
+                await conn.execute(_AGREGAR_HOGAR)
             await conn.commit()
 
     @asynccontextmanager
@@ -113,6 +125,7 @@ class SqliteCotizacionRepository:
                     cotizacion.vigencia.desde.isoformat(),
                     cotizacion.vigencia.hasta.isoformat(),
                     cotizacion.creada_en.isoformat(),
+                    _hogar_a_json(cotizacion.hogar),
                 ),
             )
             await conn.commit()
@@ -126,6 +139,31 @@ class SqliteCotizacionRepository:
         if fila is None:
             raise RecursoNoEncontrado("el cliente no tiene una cotización activa")
         return _a_cotizacion(fila)
+
+
+def _hogar_a_json(hogar: CoberturaPrecio | None) -> str | None:
+    if hogar is None:
+        return None
+    return json.dumps(
+        {
+            "sumaAsegurada": str(hogar.suma_asegurada),
+            "primaNeta": str(hogar.prima_neta),
+            "iva": str(hogar.iva),
+        }
+    )
+
+
+def _hogar_desde_json(crudo: str | None) -> CoberturaPrecio | None:
+    if crudo is None:
+        return None
+    datos = json.loads(crudo)
+    return CoberturaPrecio(
+        codigo=CodigoCobertura.HOGAR,
+        obligatoria=False,
+        suma_asegurada=Decimal(datos["sumaAsegurada"]),
+        prima_neta=Decimal(datos["primaNeta"]),
+        iva=Decimal(datos["iva"]),
+    )
 
 
 def _a_cotizacion(fila: aiosqlite.Row) -> Cotizacion:
@@ -157,4 +195,5 @@ def _a_cotizacion(fila: aiosqlite.Row) -> Cotizacion:
             datetime.fromisoformat(fila["vigencia_hasta"]),
         ),
         creada_en=datetime.fromisoformat(fila["creada_en"]),
+        hogar=_hogar_desde_json(fila["hogar"]),
     )

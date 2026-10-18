@@ -93,7 +93,7 @@ def _a_salida(cot: Cotizacion) -> CotizacionOut:
                         iva=float(c.iva),
                         prima_total=float(c.prima_total),
                     )
-                    for c in calcular_desglose(d, o)
+                    for c in calcular_desglose(o, cot.hogar)
                 ]
             ),
         ),

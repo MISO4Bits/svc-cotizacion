@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
-from app.adapters.fakes import FakeCotizacionRepository, FakeTarifa
+from app.adapters.fakes import TARIFA_SEMILLA, FakeCotizacionRepository, FakeTarifa
 from app.domain import (
     CodigoCobertura,
     DependenciaNoDisponible,
     PerfilRiesgo,
     RecursoNoEncontrado,
     SolicitudInvalida,
+    TarifaHogar,
 )
 from app.services import (
     CotizacionService,
@@ -19,7 +21,7 @@ from app.services import (
     calcular_prima_base,
     validar_solicitud,
 )
-from tests.factories import datos_credito, perfil, solicitud
+from tests.factories import cotizacion, datos_credito, perfil, solicitud
 
 
 class _PerfilOk:
@@ -116,7 +118,7 @@ async def test_la_cotizacion_guarda_los_insumos_del_calculo():
 
     assert cot.edad == 37
     assert cot.tasa == Decimal("0.196")
-    assert cot.version_tarifa == 1
+    assert cot.version_tarifa == TARIFA_SEMILLA.version
     assert cot.origen_datos == "DECLARADO"
     assert cot.datos_credito.saldo_insoluto == Decimal("178500000")
     assert cot.perfil_riesgo.factor_ajuste == Decimal("0.90")
@@ -202,7 +204,7 @@ EJEMPLOS_HOGAR = [
 
 @pytest.mark.parametrize(("valor", "suma", "neta", "iva", "total"), EJEMPLOS_HOGAR)
 def test_hogar_suma_asegurada_con_tope_e_iva(valor, suma, neta, iva, total):
-    hogar = calcular_cobertura_hogar(datos_credito(valor=valor))
+    hogar = calcular_cobertura_hogar(datos_credito(valor=valor), TARIFA_SEMILLA.hogar)
 
     assert hogar.codigo == CodigoCobertura.HOGAR
     assert hogar.obligatoria is False
@@ -215,7 +217,7 @@ def test_hogar_suma_asegurada_con_tope_e_iva(valor, suma, neta, iva, total):
 async def test_el_desglose_trae_vida_sin_iva_y_hogar():
     cot = await _servicio().crear_cotizacion(solicitud())
 
-    vida, hogar = calcular_desglose(cot.datos_credito, cot.oferta)
+    vida, hogar = calcular_desglose(cot.oferta, cot.hogar)
 
     assert vida.codigo == CodigoCobertura.VIDA
     assert vida.obligatoria is True
@@ -230,15 +232,43 @@ async def test_el_factor_del_perfil_no_afecta_a_hogar():
     con_descuento = await _servicio(_PerfilOk("0.85")).crear_cotizacion(solicitud())
     con_recargo = await _servicio(_PerfilOk("1.65")).crear_cotizacion(solicitud())
 
-    assert (
-        calcular_desglose(con_descuento.datos_credito, con_descuento.oferta)[1]
-        == (calcular_desglose(con_recargo.datos_credito, con_recargo.oferta)[1])
-    )
+    assert con_descuento.hogar == con_recargo.hogar
 
 
 async def test_sin_perfil_el_desglose_usa_la_prima_estandar_de_vida():
     cot = await _servicio(_PerfilInexistente()).crear_cotizacion(solicitud())
 
-    vida, _ = calcular_desglose(cot.datos_credito, cot.oferta)
+    vida, _ = calcular_desglose(cot.oferta, cot.hogar)
 
     assert vida.prima_neta == cot.oferta.prima_base_mensual
+
+
+async def test_la_cotizacion_calcula_hogar_con_la_tarifa_que_trae_productos():
+    tarifa = replace(
+        TARIFA_SEMILLA,
+        hogar=TarifaHogar(Decimal("0.2"), Decimal("100000000"), Decimal("0.16")),
+    )
+
+    cot = await _servicio(tarifa=FakeTarifa(tarifa=tarifa)).crear_cotizacion(solicitud())
+
+    # Crédito de $150M, tope de $100M: 100.000.000 × 0,2 ÷ 1.000 = 20.000; impuesto 16 % = 3.200.
+    assert cot.hogar.suma_asegurada == Decimal("100000000")
+    assert cot.hogar.prima_neta == Decimal("20000")
+    assert cot.hogar.iva == Decimal("3200")
+
+
+async def test_una_sola_lectura_de_la_tarifa_sirve_para_vida_y_hogar():
+    tarifa = FakeTarifa()
+
+    await _servicio(tarifa=tarifa).crear_cotizacion(solicitud())
+
+    assert tarifa.llamadas == 1
+
+
+async def test_una_cotizacion_anterior_a_hogar_se_completa_al_consultarla():
+    repositorio = FakeCotizacionRepository()
+    await repositorio.reemplazar(cotizacion(sin_hogar=True))
+
+    cot = await _servicio(repositorio=repositorio).obtener_cotizacion_activa("cli-1")
+
+    assert cot.hogar.prima_total == Decimal("17672")  # crédito de $150M de la factoría

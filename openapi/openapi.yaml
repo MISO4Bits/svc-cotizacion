@@ -30,10 +30,14 @@ info:
     en `oferta.desglose` el precio de cada cobertura, con su IVA. Hogar es opcional y NO viene
     marcada por defecto: el servicio no guarda la selección del cliente ni devuelve totales;
     el front suma `primaNeta`, `iva` y `primaTotal` de las coberturas que el cliente elija.
-    - Suma asegurada de Hogar: `min(240.000.000, valorCredito)`.
-    - `primaNeta = sumaAsegurada × 0,099 ÷ 1.000`, redondeada al peso (ROUND_HALF_UP).
-    - `iva = primaNeta × 0,19`, redondeado al peso (ROUND_HALF_UP). Vida no lleva IVA.
+    La tarifa de Hogar (tasa, tope de suma asegurada e IVA) viene de Productos en la misma
+    llamada que la tabla de tasas por edad, así que cotizar sigue costando una sola lectura de
+    tarifa. Con los valores actuales (tasa 0,099 por mil, tope $240.000.000, IVA 19 %):
+    - Suma asegurada de Hogar: `min(tope, valorCredito)`.
+    - `primaNeta = sumaAsegurada × tasa ÷ 1.000`, redondeada al peso (ROUND_HALF_UP).
+    - `iva = primaNeta × IVA`, redondeado al peso (ROUND_HALF_UP). Vida no lleva IVA.
     - `primaTotal = primaNeta + iva`. El factor de ajuste del perfil no afecta a Hogar.
+    El precio de Hogar se guarda con la cotización, junto con la versión de la tarifa.
 
     Alcance: el precio de Vida y de la cobertura opcional de Hogar. Fuera de alcance:
     persistir la selección de coberturas, servicios adicionales del hogar, rutas APROBADA /

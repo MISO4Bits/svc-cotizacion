@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.domain import (
+    CoberturaPrecio,
+    CodigoCobertura,
     Cotizacion,
     DatosCredito,
     EfectoFactor,
@@ -54,7 +56,11 @@ def perfil(factor: str = "0.90", *, fuentes_no_disponibles: tuple[str, ...] = ()
 
 
 def cotizacion(
-    *, cliente_id: str = "cli-1", personalizado: bool = False, creada_en: datetime | None = None
+    *,
+    cliente_id: str = "cli-1",
+    personalizado: bool = False,
+    creada_en: datetime | None = None,
+    sin_hogar: bool = False,
 ) -> Cotizacion:
     ahora = creada_en or datetime.now(UTC)
     prima_base = Decimal("60000")
@@ -78,4 +84,9 @@ def cotizacion(
         perfil_riesgo=perfil() if personalizado else None,
         vigencia=Vigencia(ahora, ahora + timedelta(days=30)),
         creada_en=ahora,
+        hogar=None
+        if sin_hogar
+        else CoberturaPrecio(
+            CodigoCobertura.HOGAR, False, Decimal("150000000"), Decimal("14850"), Decimal("2822")
+        ),
     )
