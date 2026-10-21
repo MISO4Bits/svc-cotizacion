@@ -86,3 +86,7 @@ class CotizacionRepositoryPort(Protocol):
     async def obtener_activa(self, cliente_id: str) -> Cotizacion:
         """La cotización activa del cliente. Lanza ``RecursoNoEncontrado`` si no tiene."""
         ...
+
+    async def eliminar_activa(self, cliente_id: str) -> None:
+        """Borra la cotización activa del cliente. Lanza ``RecursoNoEncontrado`` si no tiene."""
+        ...

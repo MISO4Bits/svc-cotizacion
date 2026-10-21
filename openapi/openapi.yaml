@@ -49,7 +49,7 @@ info:
     Convenciones de datos (VI-002): montos en COP como numero.
 
     Errores en formato RFC 9457 (Problem Details), application/problem+json.
-  version: 0.3.0
+  version: 0.4.0
   contact:
     name: Equipo 4Bits
   license:
@@ -108,6 +108,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Cotizacion' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+    delete:
+      operationId: eliminarCotizacionActiva
+      tags: [Cotización]
+      summary: Elimina la cotización activa del cliente
+      description: |
+        El cliente declinó las condiciones: se borra la cotización activa y el cliente vuelve
+        al estado de cero cotizaciones (`GET /v1/cotizaciones/actual` responde `404`). No se
+        conserva historial. Si el cliente no tiene cotización activa responde `404`.
+      parameters:
+        - $ref: '#/components/parameters/ClienteId'
+      responses:
+        '204':
+          description: Cotización eliminada.
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
 components:

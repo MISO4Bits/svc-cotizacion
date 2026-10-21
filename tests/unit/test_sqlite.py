@@ -58,6 +58,22 @@ async def test_cliente_sin_cotizacion_no_se_encuentra(repo):
         await repo.obtener_activa("nadie")
 
 
+async def test_eliminar_borra_la_fila_del_cliente_y_no_la_de_otros(repo):
+    await repo.reemplazar(cotizacion(cliente_id="cli-1"))
+    await repo.reemplazar(cotizacion(cliente_id="cli-2"))
+
+    await repo.eliminar_activa("cli-1")
+
+    with pytest.raises(RecursoNoEncontrado):
+        await repo.obtener_activa("cli-1")
+    assert (await repo.obtener_activa("cli-2")).cliente_id == "cli-2"
+
+
+async def test_eliminar_de_un_cliente_sin_cotizacion_no_se_encuentra(repo):
+    with pytest.raises(RecursoNoEncontrado):
+        await repo.eliminar_activa("nadie")
+
+
 async def test_la_cotizacion_sobrevive_a_un_reinicio_del_servicio(tmp_path):
     ruta = str(tmp_path / "pod.db")
     db = SqliteDatabase(ruta)

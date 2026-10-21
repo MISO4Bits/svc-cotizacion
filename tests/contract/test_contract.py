@@ -45,6 +45,7 @@ def test_spec_tiene_estructura_openapi(openapi_spec):
     assert openapi_spec["openapi"].startswith("3.")
     assert "post" in openapi_spec["paths"]["/v1/cotizaciones"]
     assert "get" in openapi_spec["paths"]["/v1/cotizaciones/actual"]
+    assert "delete" in openapi_spec["paths"]["/v1/cotizaciones/actual"]
 
 
 def test_el_contrato_no_tiene_id_ni_cuestionario_de_habitos(openapi_spec):
@@ -110,6 +111,12 @@ async def test_error_de_edad_cumple_problem_details(client, openapi_spec):
 
 async def test_sin_cotizacion_cumple_problem_details(client, openapi_spec):
     resp = await client.get("/v1/cotizaciones/actual", headers=HEADERS)
+    assert resp.status_code == 404
+    _validar(openapi_spec, "Problema", resp.json())
+
+
+async def test_eliminar_sin_cotizacion_cumple_problem_details(client, openapi_spec):
+    resp = await client.delete("/v1/cotizaciones/actual", headers=HEADERS)
     assert resp.status_code == 404
     _validar(openapi_spec, "Problema", resp.json())
 

@@ -192,6 +192,31 @@ async def test_sin_cotizacion_activa_no_se_encuentra():
         await _servicio().obtener_cotizacion_activa("cli-sin-cotizacion")
 
 
+async def test_eliminar_la_activa_deja_al_cliente_sin_cotizacion():
+    servicio = _servicio()
+    await servicio.crear_cotizacion(solicitud())
+
+    await servicio.eliminar_cotizacion_activa("cli-1")
+
+    with pytest.raises(RecursoNoEncontrado):
+        await servicio.obtener_cotizacion_activa("cli-1")
+
+
+async def test_eliminar_sin_cotizacion_activa_no_se_encuentra():
+    with pytest.raises(RecursoNoEncontrado):
+        await _servicio().eliminar_cotizacion_activa("cli-sin-cotizacion")
+
+
+async def test_eliminar_la_activa_de_un_cliente_no_toca_la_de_otro():
+    servicio = _servicio()
+    await servicio.crear_cotizacion(solicitud(cliente_id="cli-1"))
+    await servicio.crear_cotizacion(solicitud(cliente_id="cli-2"))
+
+    await servicio.eliminar_cotizacion_activa("cli-1")
+
+    assert (await servicio.obtener_cotizacion_activa("cli-2")).cliente_id == "cli-2"
+
+
 # --- cobertura opcional de Hogar ---
 # (valor del crédito, suma asegurada, prima neta, IVA, total)
 EJEMPLOS_HOGAR = [
