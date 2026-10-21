@@ -184,6 +184,13 @@ class CotizacionService:
             )
         return cotizacion
 
+    async def eliminar_cotizacion_activa(self, cliente_id: str) -> None:
+        """El cliente declina la cotización: vuelve al estado de cero cotizaciones."""
+        logger.info(
+            "eliminar_cotizacion_activa: eliminando cliente_id=%s", sanear_para_log(cliente_id)
+        )
+        await self._repositorio.eliminar_activa(cliente_id)
+
     async def _perfil_o_ninguno(self, cliente_id: str) -> PerfilRiesgo | None:
         try:
             return await self._perfilador.obtener_perfil(cliente_id)

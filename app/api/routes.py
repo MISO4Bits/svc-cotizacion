@@ -136,3 +136,15 @@ async def obtener_cotizacion_activa(
     )
     cotizacion = await service.obtener_cotizacion_activa(cliente_id)
     return _a_salida(cotizacion)
+
+
+@router.delete("/v1/cotizaciones/actual", status_code=status.HTTP_204_NO_CONTENT)
+async def eliminar_cotizacion_activa(
+    cliente_id: ClienteId,
+    service: ServiceDep,
+) -> None:
+    logger.info(
+        "DELETE /v1/cotizaciones/actual: solicitud recibida cliente_id=%s",
+        sanear_para_log(cliente_id),
+    )
+    await service.eliminar_cotizacion_activa(cliente_id)

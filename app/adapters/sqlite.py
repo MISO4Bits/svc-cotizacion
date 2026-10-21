@@ -140,6 +140,16 @@ class SqliteCotizacionRepository:
             raise RecursoNoEncontrado("el cliente no tiene una cotización activa")
         return _a_cotizacion(fila)
 
+    async def eliminar_activa(self, cliente_id: str) -> None:
+        async with self._db.connect() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM cotizacion_activa WHERE cliente_id = ?", (cliente_id,)
+            )
+            await conn.commit()
+            borradas = cursor.rowcount
+        if borradas == 0:
+            raise RecursoNoEncontrado("el cliente no tiene una cotización activa")
+
 
 def _hogar_a_json(hogar: CoberturaPrecio | None) -> str | None:
     if hogar is None:

@@ -86,6 +86,48 @@ async def test_sin_cotizacion_la_activa_devuelve_404(client):
     assert resp.headers["content-type"].startswith("application/problem+json")
 
 
+async def test_eliminar_la_activa_devuelve_204_y_deja_al_cliente_sin_cotizacion(client):
+    await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+
+    resp = await client.delete("/v1/cotizaciones/actual", headers=HEADERS)
+
+    assert resp.status_code == 204
+    assert resp.content == b""
+    assert (await client.get("/v1/cotizaciones/actual", headers=HEADERS)).status_code == 404
+
+
+async def test_eliminar_sin_cotizacion_devuelve_404(client):
+    resp = await client.delete("/v1/cotizaciones/actual", headers=HEADERS)
+
+    assert resp.status_code == 404
+    assert resp.headers["content-type"].startswith("application/problem+json")
+
+
+async def test_eliminar_dos_veces_la_segunda_devuelve_404(client):
+    await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+    await client.delete("/v1/cotizaciones/actual", headers=HEADERS)
+
+    resp = await client.delete("/v1/cotizaciones/actual", headers=HEADERS)
+
+    assert resp.status_code == 404
+
+
+async def test_eliminar_la_activa_no_toca_la_de_otro_cliente(client):
+    await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+    await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers={"X-Cliente-Id": "otro"})
+
+    await client.delete("/v1/cotizaciones/actual", headers=HEADERS)
+
+    resp = await client.get("/v1/cotizaciones/actual", headers={"X-Cliente-Id": "otro"})
+    assert resp.status_code == 200
+
+
+async def test_eliminar_sin_cliente_devuelve_400(client):
+    resp = await client.delete("/v1/cotizaciones/actual")
+
+    assert resp.status_code == 400
+
+
 async def test_una_cotizacion_nueva_reemplaza_a_la_anterior(client):
     await client.post(
         "/v1/cotizaciones", json=_con_credito(saldoInsoluto=100000000), headers=HEADERS
