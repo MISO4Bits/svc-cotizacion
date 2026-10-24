@@ -56,7 +56,12 @@ filterwarnings = [
 [tool.coverage.run]
 branch = true
 source = ["app"]
-omit = ["app/main.py", "app/adapters/redis_cache.py", "app/adapters/pubsub_consumer.py"]
+omit = [
+    "app/main.py",
+    "app/adapters/redis_cache.py",
+    "app/adapters/pubsub_consumer.py",
+    "app/adapters/pubsub_publisher.py",
+]
 
 [tool.coverage.report]
 fail_under = 80

@@ -90,8 +90,23 @@ class CotizacionOut(_Model):
     estado: Literal["VIGENTE", "EXPIRADA"]
     producto: Literal["VIDA_HIPOTECARIO"]
     datos_credito: DatosCreditoOut
-    origen_datos: Literal["DECLARADO"]
+    origen_datos: Literal["CONFIRMADO", "DECLARADO"]
     oferta: OfertaOut
     perfil_riesgo: PerfilRiesgoOut | None = None
+    vigencia_cotizacion: VigenciaOut
+    creada_en: datetime
+
+
+class CotizacionActivaInternaOut(_Model):
+    """Lo que CoreTransaccional guarda en la póliza (ruta interna, no pasa por el gateway)."""
+
+    estado: Literal["VIGENTE", "EXPIRADA"]
+    edad: int
+    datos_credito: DatosCreditoOut
+    origen_datos: Literal["CONFIRMADO", "DECLARADO"]
+    tasa: float
+    version_tarifa: int
+    cobertura_meses: int
+    coberturas: list[CoberturaPrecioOut]
     vigencia_cotizacion: VigenciaOut
     creada_en: datetime

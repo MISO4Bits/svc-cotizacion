@@ -4,10 +4,11 @@ import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Request, status
+from fastapi import APIRouter, Depends, Header, Path, Request, status
 
 from app.api.schemas import (
     CoberturaPrecioOut,
+    CotizacionActivaInternaOut,
     CotizacionOut,
     DatosCreditoOut,
     DesgloseOut,
@@ -148,3 +149,47 @@ async def eliminar_cotizacion_activa(
         sanear_para_log(cliente_id),
     )
     await service.eliminar_cotizacion_activa(cliente_id)
+
+
+@router.get(
+    "/v1/clientes/{cliente_id}/cotizacion-activa",
+    response_model=CotizacionActivaInternaOut,
+    tags=["Cotización (interno)"],
+)
+async def obtener_cotizacion_activa_interna(
+    cliente_id: Annotated[str, Path(min_length=1, max_length=64)],
+    service: ServiceDep,
+) -> CotizacionActivaInternaOut:
+    """Para CoreTransaccional: la cotización activa por ``clienteId``, aunque esté expirada."""
+    logger.info(
+        "GET /v1/clientes/%s/cotizacion-activa: solicitud recibida", sanear_para_log(cliente_id)
+    )
+    cot = await service.obtener_cotizacion_activa(cliente_id)
+    d = cot.datos_credito
+    return CotizacionActivaInternaOut(
+        estado=str(cot.estado_en(datetime.now(UTC))),
+        edad=cot.edad,
+        datos_credito=DatosCreditoOut(
+            valor_credito=float(d.valor_credito),
+            plazo_restante_meses=d.plazo_restante_meses,
+            entidad_acreedora=d.entidad_acreedora,
+            saldo_insoluto=float(d.saldo_insoluto),
+        ),
+        origen_datos=str(cot.origen_datos),
+        tasa=float(cot.tasa),
+        version_tarifa=cot.version_tarifa,
+        cobertura_meses=cot.oferta.cobertura_meses,
+        coberturas=[
+            CoberturaPrecioOut(
+                codigo=str(c.codigo),
+                obligatoria=c.obligatoria,
+                suma_asegurada=float(c.suma_asegurada),
+                prima_neta=float(c.prima_neta),
+                iva=float(c.iva),
+                prima_total=float(c.prima_total),
+            )
+            for c in calcular_desglose(cot.oferta, cot.hogar)
+        ],
+        vigencia_cotizacion=VigenciaOut(desde=cot.vigencia.desde, hasta=cot.vigencia.hasta),
+        creada_en=cot.creada_en,
+    )

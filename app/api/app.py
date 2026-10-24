@@ -26,7 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.getLogger("uvicorn.access").addFilter(SinRuidoDeHealthCheck())
 
     deps = build_dependencias(settings)
-    service = CotizacionService(deps.perfilador, deps.tarifa, deps.repositorio)
+    service = CotizacionService(deps.perfilador, deps.tarifa, deps.repositorio, deps.eventos)
 
     consumidor = None
     if settings.cache_backend == "redis":  # pragma: no cover

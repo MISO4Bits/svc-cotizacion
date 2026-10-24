@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 
@@ -121,7 +122,9 @@ class SqliteCotizacionRepository:
                     str(o.moneda),
                     int(o.personalizado),
                     json.dumps(list(o.fuentes_no_disponibles)),
-                    json.dumps(perfil_a_dict(perfil)) if perfil is not None else None,
+                    json.dumps(perfil_a_dict(replace(perfil, hipotecas=())))
+                    if perfil is not None
+                    else None,
                     cotizacion.vigencia.desde.isoformat(),
                     cotizacion.vigencia.hasta.isoformat(),
                     cotizacion.creada_en.isoformat(),

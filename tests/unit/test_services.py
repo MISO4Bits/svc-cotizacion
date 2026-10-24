@@ -5,7 +5,12 @@ from decimal import Decimal
 
 import pytest
 
-from app.adapters.fakes import TARIFA_SEMILLA, FakeCotizacionRepository, FakeTarifa
+from app.adapters.fakes import (
+    TARIFA_SEMILLA,
+    FakeCotizacionRepository,
+    FakeEventos,
+    FakeTarifa,
+)
 from app.domain import (
     CodigoCobertura,
     DependenciaNoDisponible,
@@ -42,11 +47,12 @@ class _PerfilInexistente:
         return None
 
 
-def _servicio(perfilador=None, tarifa=None, repositorio=None) -> CotizacionService:
+def _servicio(perfilador=None, tarifa=None, repositorio=None, eventos=None) -> CotizacionService:
     return CotizacionService(
         perfilador or _PerfilOk(),
         tarifa or FakeTarifa(),
         repositorio or FakeCotizacionRepository(),
+        eventos or FakeEventos(),
     )
 
 

@@ -88,7 +88,7 @@ async def test_factory_persistencia_sqlite_crea_el_esquema(tmp_path):
 
 async def test_service_de_punta_a_punta_con_fakes():
     deps = build_dependencias(Settings(adapters="fake"))
-    servicio = CotizacionService(deps.perfilador, deps.tarifa, deps.repositorio)
+    servicio = CotizacionService(deps.perfilador, deps.tarifa, deps.repositorio, deps.eventos)
 
     cot = await servicio.crear_cotizacion(solicitud())
 

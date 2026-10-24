@@ -23,6 +23,19 @@ info:
     `personalizado = false` y `perfilamiento` en `fuentesNoDisponibles`. La suma asegurada es
     el saldo insoluto. Cada cotización guarda la tasa y la versión de tarifa con que se calculó.
 
+    **Origen de los datos del crédito (BITS-101).** El perfil que lee de Perfilamiento trae las
+    hipotecas que Open Finance reportó. Si el crédito enviado coincide exactamente con una
+    (entidad comparada sin tildes, mayúsculas ni sufijo societario; valor, saldo y plazo
+    iguales), `origenDatos = CONFIRMADO`; en cualquier otro caso (sin coincidencia, sin
+    consentimiento, Perfilamiento caído o datos escritos a mano) es `DECLARADO`. Cotizar nunca
+    se bloquea por esto. CoreTransaccional exige `CONFIRMADO` para emitir una póliza sin
+    revisión de un agente.
+
+    **Eventos.** Al guardar una cotización publica `CotizacionCreada` (`clienteId`, `creadaEn`) y
+    al eliminarla `CotizacionEliminada` (`clienteId`) en el tópico compartido; Core los consume
+    para borrar la póliza pendiente de la cotización anterior. Publicar es best-effort: un fallo
+    no afecta a la cotización.
+
     **Estado.** `VIGENTE` durante 30 días desde su creación y `EXPIRADA` después. Se deriva al
     consultar.
 
@@ -49,7 +62,7 @@ info:
     Convenciones de datos (VI-002): montos en COP como numero.
 
     Errores en formato RFC 9457 (Problem Details), application/problem+json.
-  version: 0.4.0
+  version: 0.5.0
   contact:
     name: Equipo 4Bits
   license:
@@ -62,6 +75,8 @@ servers:
 tags:
   - name: Cotización
     description: Generación y consulta de la cotización activa de vida hipotecario.
+  - name: Cotización (interno)
+    description: Rutas internas para CoreTransaccional; no pasan por el gateway.
 
 paths:
   /v1/cotizaciones:
@@ -124,6 +139,28 @@ paths:
           description: Cotización eliminada.
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /v1/clientes/{clienteId}/cotizacion-activa:
+    get:
+      operationId: obtenerCotizacionActivaInterna
+      tags: [Cotización (interno)]
+      summary: Cotización activa de un cliente, con todo lo que la póliza guarda
+      description: |
+        Interna: la usa CoreTransaccional al crear la solicitud de póliza. La identidad es el
+        `clienteId` (id del cliente, no el documento). Devuelve la cotización aunque esté
+        expirada (`estado = EXPIRADA`); quien la llama decide.
+      parameters:
+        - name: clienteId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        '200':
+          description: La cotización activa.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CotizacionActivaInterna' }
+        '404': { $ref: '#/components/responses/NoEncontrado' }
+
 components:
 
   parameters:
@@ -171,10 +208,11 @@ components:
 
     OrigenDatos:
       type: string
-      enum: [DECLARADO]
+      enum: [CONFIRMADO, DECLARADO]
       description: |
-        De dónde salen los datos del crédito. Hoy los escribe el cliente (`DECLARADO`);
-        verificarlos contra la fuente es de BITS-224.
+        De dónde salen los datos del crédito. `CONFIRMADO`: coinciden exactamente con una
+        hipoteca que Open Finance reportó a Perfilamiento. `DECLARADO`: los escribió el cliente
+        o no hay con qué compararlos.
 
     DatosCredito:
       type: object
@@ -353,6 +391,25 @@ components:
         perfilRiesgo:
           description: Presente solo cuando oferta.personalizado es true.
           $ref: '#/components/schemas/PerfilRiesgo'
+        vigenciaCotizacion: { $ref: '#/components/schemas/Vigencia' }
+        creadaEn: { type: string, format: date-time }
+
+    CotizacionActivaInterna:
+      type: object
+      additionalProperties: false
+      required: [estado, edad, datosCredito, origenDatos, tasa, versionTarifa, coberturaMeses, coberturas, vigenciaCotizacion, creadaEn]
+      properties:
+        estado: { $ref: '#/components/schemas/EstadoCotizacion' }
+        edad: { type: integer, description: Edad calculada al cotizar. }
+        datosCredito: { $ref: '#/components/schemas/DatosCredito' }
+        origenDatos: { $ref: '#/components/schemas/OrigenDatos' }
+        tasa: { type: number, description: Tasa mensual por mil de la franja de edad usada. }
+        versionTarifa: { type: integer }
+        coberturaMeses: { type: integer }
+        coberturas:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/CoberturaPrecio' }
         vigenciaCotizacion: { $ref: '#/components/schemas/Vigencia' }
         creadaEn: { type: string, format: date-time }
 

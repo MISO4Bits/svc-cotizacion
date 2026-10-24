@@ -10,6 +10,8 @@ página "Cotización y Rating" de David (Confluence).
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -63,10 +65,10 @@ def now_utc() -> datetime:
 
 @dataclass
 class DomainEvent:
-    """Evento de dominio recibido del tópico compartido (ver
-    iac-gcp-dev/modules/pubsub). Cotización solo consume — hoy únicamente
-    ``ConsentimientoRevocado``, para invalidar el caché de perfiles (ver
-    adapters/consumidores.py)."""
+    """Evento de dominio del tópico compartido (ver iac-gcp-dev/modules/pubsub). Cotización
+    consume ``ConsentimientoRevocado`` y los de Perfilamiento para invalidar el caché de perfiles
+    (ver consumidores.py) y publica ``CotizacionCreada`` y ``CotizacionEliminada`` para que Core
+    borre la póliza pendiente de la cotización anterior (BITS-101)."""
 
     tipo: str
     datos: dict[str, Any]
@@ -98,9 +100,13 @@ class Moneda(StrEnum):
 
 
 class OrigenDatos(StrEnum):
-    """De dónde salen los datos del crédito. Hoy los escribe el cliente; verificarlos
-    contra Open Finance es de BITS-224."""
+    """De dónde salen los datos del crédito.
 
+    ``CONFIRMADO``: coinciden exactamente con una hipoteca que Open Finance reportó a
+    Perfilamiento (BITS-101). ``DECLARADO``: los escribió el cliente, o no hay con qué compararlos.
+    """
+
+    CONFIRMADO = "CONFIRMADO"
     DECLARADO = "DECLARADO"
 
 
@@ -118,6 +124,18 @@ class DatosCredito:
     plazo_restante_meses: int
     entidad_acreedora: str
     saldo_insoluto: Decimal
+
+
+def clave_entidad(nombre: str) -> str:
+    """Forma comparable del nombre de una entidad: sin tildes, mayúsculas ni puntuación y sin el
+    sufijo societario, para que ``BANCO DE BOGOTÁ S.A.`` y ``Banco de Bogotá`` coincidan."""
+    sin_tildes = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
+    tokens = re.findall(r"[a-z0-9]+", sin_tildes.lower())
+    if tokens[-2:] == ["s", "a"]:
+        tokens = tokens[:-2]
+    elif tokens[-1:] == ["sa"]:
+        tokens = tokens[:-1]
+    return " ".join(tokens)
 
 
 @dataclass(frozen=True)
@@ -177,11 +195,35 @@ class FactorRiesgo:
 
 
 @dataclass(frozen=True)
+class Hipoteca:
+    """Una hipoteca que Open Finance reportó (lo que viaja en el perfil de Perfilamiento)."""
+
+    entidad_acreedora: str
+    valor_credito: Decimal
+    saldo_insoluto: Decimal
+    plazo_restante_meses: int
+
+
+@dataclass(frozen=True)
 class PerfilRiesgo:
     nivel_riesgo: NivelRiesgo
     factores: tuple[FactorRiesgo, ...]
     factor_ajuste: Decimal  # multiplicador que el rating aplica a la prima base
     fuentes_no_disponibles: tuple[str, ...] = ()
+    hipotecas: tuple[Hipoteca, ...] = ()
+
+
+def coincide_con_hipoteca(datos: DatosCredito, hipotecas: tuple[Hipoteca, ...]) -> bool:
+    """``True`` si el crédito declarado es exactamente una de las hipotecas reportadas: entidad
+    (comparada sin tildes, mayúsculas ni sufijo societario), valor, saldo y plazo."""
+    entidad = clave_entidad(datos.entidad_acreedora)
+    return any(
+        clave_entidad(h.entidad_acreedora) == entidad
+        and h.valor_credito == datos.valor_credito
+        and h.saldo_insoluto == datos.saldo_insoluto
+        and h.plazo_restante_meses == datos.plazo_restante_meses
+        for h in hipotecas
+    )
 
 
 # --- resultado ---

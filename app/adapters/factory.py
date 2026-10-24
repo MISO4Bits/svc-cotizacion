@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from app.adapters.fakes import (
     FakeCache,
     FakeCotizacionRepository,
+    FakeEventos,
     FakePerfilRiesgo,
     FakeTarifa,
     FakeTarifaCache,
@@ -20,6 +21,7 @@ from app.config import Settings
 from app.ports import (
     CachePort,
     CotizacionRepositoryPort,
+    EventosPort,
     PerfilRiesgoPort,
     TarifaCachePort,
     TarifaPort,
@@ -33,6 +35,7 @@ class Dependencias:
     tarifa: TarifaPort
     repositorio: CotizacionRepositoryPort
     cache: CachePort
+    eventos: EventosPort
     database: SqliteDatabase | None = None
 
     async def init(self) -> None:
@@ -53,6 +56,16 @@ def build_cache(settings: Settings) -> CachePort:
 
         return RedisCache(settings.redis_url, settings.perfil_cache_ttl_seconds)
     return FakeCache()
+
+
+def build_eventos(settings: Settings) -> EventosPort:
+    if settings.eventos_backend == "pubsub":  # pragma: no cover
+        from app.adapters.pubsub_publisher import PubSubEventPublisher
+
+        return PubSubEventPublisher(settings.pubsub_project_id or "", settings.pubsub_topic)
+    if settings.eventos_backend == "memory":
+        return FakeEventos()
+    raise ValueError(f"eventos_backend no soportado: {settings.eventos_backend}")
 
 
 def build_tarifa_cache(settings: Settings) -> TarifaCachePort:
@@ -76,6 +89,7 @@ def build_persistencia(
 
 def build_dependencias(settings: Settings) -> Dependencias:
     repositorio, database = build_persistencia(settings)
+    eventos = build_eventos(settings)
 
     if settings.adapters == "fake":
         return Dependencias(
@@ -83,6 +97,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             tarifa=FakeTarifa(),
             repositorio=repositorio,
             cache=FakeCache(),
+            eventos=eventos,
             database=database,
         )
 
@@ -113,6 +128,7 @@ def build_dependencias(settings: Settings) -> Dependencias:
             tarifa=TarifaCacheada(TarifaClient(http_productos), build_tarifa_cache(settings)),
             repositorio=repositorio,
             cache=cache,
+            eventos=eventos,
             database=database,
         )
 

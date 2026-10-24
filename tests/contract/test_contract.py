@@ -6,7 +6,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
-from app.adapters.fakes import FakePerfilRiesgo, FakeTarifa
+from app.adapters.fakes import FakeEventos, FakePerfilRiesgo, FakeTarifa
 from app.services import CotizacionService
 
 _METODOS = {"get", "post", "put", "patch", "delete"}
@@ -84,7 +84,7 @@ async def test_la_cotizacion_activa_cumple_el_contrato(client, openapi_spec):
 
 async def test_respuesta_degradada_cumple_el_contrato(app, client, openapi_spec):
     app.state.service = CotizacionService(
-        FakePerfilRiesgo(disponible=False), FakeTarifa(), app.state.deps.repositorio
+        FakePerfilRiesgo(disponible=False), FakeTarifa(), app.state.deps.repositorio, FakeEventos()
     )
     resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
     assert resp.status_code == 201
@@ -123,7 +123,7 @@ async def test_eliminar_sin_cotizacion_cumple_problem_details(client, openapi_sp
 
 async def test_sin_tarifa_responde_503_con_problem_details(app, client, openapi_spec):
     app.state.service = CotizacionService(
-        FakePerfilRiesgo(), FakeTarifa(disponible=False), app.state.deps.repositorio
+        FakePerfilRiesgo(), FakeTarifa(disponible=False), app.state.deps.repositorio, FakeEventos()
     )
     resp = await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
     assert resp.status_code == 503
@@ -134,3 +134,24 @@ async def test_el_servicio_publica_el_contrato(client):
     resp = await client.get("/openapi.yaml")
     assert resp.status_code == 200
     assert "cotizaciones" in resp.text
+
+
+async def test_la_cotizacion_activa_interna_cumple_el_contrato(client, openapi_spec):
+    await client.post("/v1/cotizaciones", json=SOLICITUD_VALIDA, headers=HEADERS)
+
+    resp = await client.get("/v1/clientes/cli-123/cotizacion-activa")
+
+    assert resp.status_code == 200
+    cuerpo = resp.json()
+    _validar(openapi_spec, "CotizacionActivaInterna", cuerpo)
+    assert cuerpo["origenDatos"] == "DECLARADO"
+    assert cuerpo["edad"] == 38
+    assert [c["codigo"] for c in cuerpo["coberturas"]] == ["VIDA", "HOGAR"]
+    assert cuerpo["versionTarifa"] >= 1
+
+
+async def test_la_cotizacion_activa_interna_sin_cotizacion_es_404(client, openapi_spec):
+    resp = await client.get("/v1/clientes/cli-sin-cotizacion/cotizacion-activa")
+
+    assert resp.status_code == 404
+    _validar(openapi_spec, "Problema", resp.json())

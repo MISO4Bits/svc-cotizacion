@@ -18,6 +18,7 @@ from app.domain import (
     Cotizacion,
     DatosCredito,
     DependenciaNoDisponible,
+    DomainEvent,
     Moneda,
     Oferta,
     OrigenDatos,
@@ -26,9 +27,10 @@ from app.domain import (
     SolicitudInvalida,
     TarifaHogar,
     Vigencia,
+    coincide_con_hipoteca,
 )
 from app.logging_utils import sanear_para_log
-from app.ports import CotizacionRepositoryPort, PerfilRiesgoPort, TarifaPort
+from app.ports import CotizacionRepositoryPort, EventosPort, PerfilRiesgoPort, TarifaPort
 
 logger = logging.getLogger("cotizacion.services")
 VIGENCIA_COTIZACION = timedelta(days=30)
@@ -110,16 +112,25 @@ def calcular_desglose(oferta: Oferta, hogar: CoberturaPrecio) -> tuple[Cobertura
     return (vida, hogar)
 
 
+def _origen_de_los_datos(datos: DatosCredito, perfil: PerfilRiesgo | None) -> OrigenDatos:
+    """``CONFIRMADO`` si el crédito coincide con una hipoteca que Open Finance reportó."""
+    if perfil is not None and coincide_con_hipoteca(datos, perfil.hipotecas):
+        return OrigenDatos.CONFIRMADO
+    return OrigenDatos.DECLARADO
+
+
 class CotizacionService:
     def __init__(
         self,
         perfilador: PerfilRiesgoPort,
         tarifa: TarifaPort,
         repositorio: CotizacionRepositoryPort,
+        eventos: EventosPort,
     ) -> None:
         self._perfilador = perfilador
         self._tarifa = tarifa
         self._repositorio = repositorio
+        self._eventos = eventos
 
     async def crear_cotizacion(self, solicitud: SolicitudCotizacion) -> Cotizacion:
         """Calcula la cotización y la deja como la activa del cliente (reemplaza la anterior)."""
@@ -154,7 +165,7 @@ class CotizacionService:
             cliente_id=solicitud.cliente_id,
             edad=solicitud.edad,
             datos_credito=datos,
-            origen_datos=OrigenDatos.DECLARADO,
+            origen_datos=_origen_de_los_datos(datos, perfil),
             tasa=tasa,
             version_tarifa=tarifa.version,
             oferta=oferta,
@@ -165,9 +176,17 @@ class CotizacionService:
         )
         await self._repositorio.reemplazar(cotizacion)
         logger.info(
-            "crear_cotizacion: cotizacion activa guardada cliente_id=%s personalizado=%s",
+            "crear_cotizacion: cotizacion activa guardada cliente_id=%s personalizado=%s "
+            "origen_datos=%s",
             sanear_para_log(solicitud.cliente_id),
             oferta.personalizado,
+            cotizacion.origen_datos,
+        )
+        await self._publicar(
+            DomainEvent(
+                "CotizacionCreada",
+                {"clienteId": solicitud.cliente_id, "creadaEn": ahora.isoformat()},
+            )
         )
         return cotizacion
 
@@ -190,6 +209,14 @@ class CotizacionService:
             "eliminar_cotizacion_activa: eliminando cliente_id=%s", sanear_para_log(cliente_id)
         )
         await self._repositorio.eliminar_activa(cliente_id)
+        await self._publicar(DomainEvent("CotizacionEliminada", {"clienteId": cliente_id}))
+
+    async def _publicar(self, evento: DomainEvent) -> None:
+        """La cotización ya quedó guardada: un fallo al avisar no la deshace."""
+        try:
+            await self._eventos.publicar(evento)
+        except Exception:
+            logger.exception("no se pudo publicar el evento tipo=%s", evento.tipo)
 
     async def _perfil_o_ninguno(self, cliente_id: str) -> PerfilRiesgo | None:
         try:
