@@ -25,6 +25,7 @@ from app.domain import (
     DependenciaNoDisponible,
     EfectoFactor,
     FactorRiesgo,
+    Hipoteca,
     NivelRiesgo,
     PerfilRiesgo,
 )
@@ -71,6 +72,17 @@ def perfil_desde_dict(data: dict) -> PerfilRiesgo:
         ),
         factor_ajuste=Decimal(str(data["factorAjuste"])),
         fuentes_no_disponibles=tuple(data.get("fuentesNoDisponibles", [])),
+        # Entradas del caché guardadas antes de BITS-101 no traen hipotecas: los datos del
+        # crédito quedan DECLARADO, que es la dirección segura.
+        hipotecas=tuple(
+            Hipoteca(
+                entidad_acreedora=h["entidadAcreedora"],
+                valor_credito=Decimal(str(h["valorCredito"])),
+                saldo_insoluto=Decimal(str(h["saldoInsoluto"])),
+                plazo_restante_meses=int(h["plazoRestanteMeses"]),
+            )
+            for h in data.get("hipotecas", [])
+        ),
     )
 
 
@@ -89,4 +101,13 @@ def perfil_a_dict(perfil: PerfilRiesgo) -> dict:
             for f in perfil.factores
         ],
         "fuentesNoDisponibles": list(perfil.fuentes_no_disponibles),
+        "hipotecas": [
+            {
+                "entidadAcreedora": h.entidad_acreedora,
+                "valorCredito": str(h.valor_credito),
+                "saldoInsoluto": str(h.saldo_insoluto),
+                "plazoRestanteMeses": h.plazo_restante_meses,
+            }
+            for h in perfil.hipotecas
+        ],
     }

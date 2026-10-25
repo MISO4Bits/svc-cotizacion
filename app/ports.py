@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.domain import Cotizacion, PerfilRiesgo, Tarifa
+from app.domain import Cotizacion, DomainEvent, PerfilRiesgo, Tarifa
 
 
 @runtime_checkable
@@ -89,4 +89,15 @@ class CotizacionRepositoryPort(Protocol):
 
     async def eliminar_activa(self, cliente_id: str) -> None:
         """Borra la cotización activa del cliente. Lanza ``RecursoNoEncontrado`` si no tiene."""
+        ...
+
+
+@runtime_checkable
+class EventosPort(Protocol):
+    async def publicar(self, evento: DomainEvent) -> None:
+        """Publica un evento de dominio (``CotizacionCreada``, ``CotizacionEliminada``).
+
+        Best-effort y sin esperar el acuse: un fallo no debe romper la cotización. Quien lo
+        consume (Core) tiene otra vía para llegar al mismo resultado.
+        """
         ...

@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     pubsub_project_id: str | None = None
     pubsub_subscription: str = "cotizacion-consentimiento-revocado"
 
+    # Eventos que publica Cotización (CotizacionCreada / CotizacionEliminada, BITS-101):
+    # "memory" (default, pruebas) | "pubsub" (real, mismo tópico compartido).
+    eventos_backend: str = "memory"
+    pubsub_topic: str = "solventa-dominio"
+
     # Observabilidad (DI-008): OTLP/gRPC hacia Grafana Alloy dentro del
     # cluster. Deshabilitado por defecto — en local/tests no hay receptor
     # escuchando; se habilita vía COT_OTEL_ENABLED=true en el manifiesto de

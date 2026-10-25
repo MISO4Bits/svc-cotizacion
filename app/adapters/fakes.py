@@ -7,6 +7,7 @@ from decimal import Decimal
 from app.domain import (
     Cotizacion,
     DependenciaNoDisponible,
+    DomainEvent,
     EfectoFactor,
     FactorRiesgo,
     FranjaTarifa,
@@ -132,3 +133,16 @@ class FakeCotizacionRepository:
     async def eliminar_activa(self, cliente_id: str) -> None:
         if self._por_cliente.pop(cliente_id, None) is None:
             raise RecursoNoEncontrado("el cliente no tiene una cotización activa")
+
+
+class FakeEventos:
+    """Registra los eventos publicados, en memoria; también sirve para correr el servicio solo."""
+
+    def __init__(self, *, falla: bool = False) -> None:
+        self.publicados: list[DomainEvent] = []
+        self._falla = falla
+
+    async def publicar(self, evento: DomainEvent) -> None:
+        if self._falla:
+            raise RuntimeError("Pub/Sub no responde")
+        self.publicados.append(evento)

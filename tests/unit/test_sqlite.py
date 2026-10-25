@@ -119,3 +119,20 @@ async def test_una_cotizacion_sin_hogar_se_recupera_sin_hogar(repo):
     await repo.reemplazar(cotizacion(sin_hogar=True))
 
     assert (await repo.obtener_activa("cli-1")).hogar is None
+
+
+async def test_la_foto_del_perfil_no_guarda_las_hipotecas(repo):
+    from dataclasses import replace
+    from decimal import Decimal
+
+    from app.domain import Hipoteca
+
+    hipoteca = Hipoteca("BBVA COLOMBIA S.A.", Decimal("150000000"), Decimal("140000000"), 240)
+    original = cotizacion(personalizado=True)
+    con_hipotecas = replace(
+        original, perfil_riesgo=replace(original.perfil_riesgo, hipotecas=(hipoteca,))
+    )
+
+    await repo.reemplazar(con_hipotecas)
+
+    assert (await repo.obtener_activa("cli-1")).perfil_riesgo.hipotecas == ()
