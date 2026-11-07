@@ -190,6 +190,35 @@ class CotizacionService:
         )
         return cotizacion
 
+    async def calcular_precio(self, edad: int, datos: DatosCredito) -> Cotizacion:
+        """Precio de un crédito, sin guardar nada ni publicar eventos (venta directa del socio,
+        BITS-378).
+
+        Es la misma cuenta que ``crear_cotizacion`` (mismas reglas de edad y plazo, misma tarifa
+        y mismo Hogar), pero sin perfil de riesgo y sin tocar la cotización activa de nadie:
+        ``crear_cotizacion`` reemplaza la del cliente y publica ``CotizacionCreada``, que borra su
+        solicitud pendiente. El crédito lo aprobó el banco, así que los datos son
+        ``CONFIRMADO``. La ``Cotizacion`` que devuelve no tiene cliente: no se persiste.
+        """
+        validar_solicitud(SolicitudCotizacion(cliente_id="", edad=edad, datos_credito=datos))
+        tarifa = await self._tarifa.obtener()
+        tasa = tarifa.tasa_para(edad)
+        oferta = self._armar_oferta(datos, calcular_prima_base(datos, tasa), None)
+        ahora = datetime.now(UTC)
+        return Cotizacion(
+            cliente_id="",
+            edad=edad,
+            datos_credito=datos,
+            origen_datos=OrigenDatos.CONFIRMADO,
+            tasa=tasa,
+            version_tarifa=tarifa.version,
+            oferta=oferta,
+            perfil_riesgo=None,
+            vigencia=Vigencia(ahora, ahora + VIGENCIA_COTIZACION),
+            creada_en=ahora,
+            hogar=calcular_cobertura_hogar(datos, tarifa.hogar),
+        )
+
     async def obtener_cotizacion_activa(self, cliente_id: str) -> Cotizacion:
         logger.info(
             "obtener_cotizacion_activa: consultando cliente_id=%s", sanear_para_log(cliente_id)
