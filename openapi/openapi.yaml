@@ -139,6 +139,35 @@ paths:
           description: Cotización eliminada.
         '404': { $ref: '#/components/responses/NoEncontrado' }
 
+  /v1/cotizaciones/precio:
+    post:
+      operationId: calcularPrecioInterno
+      tags: [Cotización (interno)]
+      summary: Precio de un crédito, sin cotización
+      description: |
+        Interna: la usa CoreTransaccional en la venta directa del socio (BITS-378). Calcula el precio
+        con las mismas reglas y la misma tarifa que `POST /v1/cotizaciones` (edad entre 18 y 65, el
+        crédito termina a los 75 años o antes), con Vida y Hogar, pero **no guarda nada y no publica
+        `CotizacionCreada`**: no toca la cotización activa de ningún cliente (publicar ese evento
+        borraría la solicitud pendiente del cliente). No usa el perfil de riesgo y no lleva
+        `X-Cliente-Id`.
+
+        El crédito lo aprobó el banco, así que `origenDatos` es siempre `CONFIRMADO`. Responde con
+        la misma forma que la cotización activa.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SolicitudCotizacion' }
+      responses:
+        '200':
+          description: El precio calculado.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CotizacionActivaInterna' }
+        '400': { $ref: '#/components/responses/SolicitudInvalida' }
+        '503': { $ref: '#/components/responses/NoSePudoCotizar' }
+
   /v1/clientes/{clienteId}/cotizacion-activa:
     get:
       operationId: obtenerCotizacionActivaInterna

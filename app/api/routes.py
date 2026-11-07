@@ -104,6 +104,37 @@ def _a_salida(cot: Cotizacion) -> CotizacionOut:
     )
 
 
+def _a_interna(cot: Cotizacion) -> CotizacionActivaInternaOut:
+    d = cot.datos_credito
+    return CotizacionActivaInternaOut(
+        estado=str(cot.estado_en(datetime.now(UTC))),
+        edad=cot.edad,
+        datos_credito=DatosCreditoOut(
+            valor_credito=float(d.valor_credito),
+            plazo_restante_meses=d.plazo_restante_meses,
+            entidad_acreedora=d.entidad_acreedora,
+            saldo_insoluto=float(d.saldo_insoluto),
+        ),
+        origen_datos=str(cot.origen_datos),
+        tasa=float(cot.tasa),
+        version_tarifa=cot.version_tarifa,
+        cobertura_meses=cot.oferta.cobertura_meses,
+        coberturas=[
+            CoberturaPrecioOut(
+                codigo=str(c.codigo),
+                obligatoria=c.obligatoria,
+                suma_asegurada=float(c.suma_asegurada),
+                prima_neta=float(c.prima_neta),
+                iva=float(c.iva),
+                prima_total=float(c.prima_total),
+            )
+            for c in calcular_desglose(cot.oferta, cot.hogar)
+        ],
+        vigencia_cotizacion=VigenciaOut(desde=cot.vigencia.desde, hasta=cot.vigencia.hasta),
+        creada_en=cot.creada_en,
+    )
+
+
 @router.post(
     "/v1/cotizaciones",
     response_model=CotizacionOut,
@@ -164,32 +195,31 @@ async def obtener_cotizacion_activa_interna(
     logger.info(
         "GET /v1/clientes/%s/cotizacion-activa: solicitud recibida", sanear_para_log(cliente_id)
     )
-    cot = await service.obtener_cotizacion_activa(cliente_id)
-    d = cot.datos_credito
-    return CotizacionActivaInternaOut(
-        estado=str(cot.estado_en(datetime.now(UTC))),
-        edad=cot.edad,
-        datos_credito=DatosCreditoOut(
-            valor_credito=float(d.valor_credito),
-            plazo_restante_meses=d.plazo_restante_meses,
-            entidad_acreedora=d.entidad_acreedora,
-            saldo_insoluto=float(d.saldo_insoluto),
+    return _a_interna(await service.obtener_cotizacion_activa(cliente_id))
+
+
+@router.post(
+    "/v1/cotizaciones/precio",
+    response_model=CotizacionActivaInternaOut,
+    tags=["Cotización (interno)"],
+)
+async def calcular_precio_interno(
+    payload: SolicitudCotizacionIn, service: ServiceDep
+) -> CotizacionActivaInternaOut:
+    """Para CoreTransaccional (venta directa del socio, BITS-378): el precio de un crédito.
+
+    No guarda nada y no publica ``CotizacionCreada``: no toca la cotización activa de ningún
+    cliente. Responde con la misma forma que la cotización activa.
+    """
+    logger.info("POST /v1/cotizaciones/precio: solicitud recibida")
+    dc = payload.datos_credito
+    cotizacion = await service.calcular_precio(
+        payload.edad,
+        DatosCredito(
+            valor_credito=dc.valor_credito,
+            plazo_restante_meses=dc.plazo_restante_meses,
+            entidad_acreedora=dc.entidad_acreedora,
+            saldo_insoluto=dc.saldo_insoluto,
         ),
-        origen_datos=str(cot.origen_datos),
-        tasa=float(cot.tasa),
-        version_tarifa=cot.version_tarifa,
-        cobertura_meses=cot.oferta.cobertura_meses,
-        coberturas=[
-            CoberturaPrecioOut(
-                codigo=str(c.codigo),
-                obligatoria=c.obligatoria,
-                suma_asegurada=float(c.suma_asegurada),
-                prima_neta=float(c.prima_neta),
-                iva=float(c.iva),
-                prima_total=float(c.prima_total),
-            )
-            for c in calcular_desglose(cot.oferta, cot.hogar)
-        ],
-        vigencia_cotizacion=VigenciaOut(desde=cot.vigencia.desde, hasta=cot.vigencia.hasta),
-        creada_en=cot.creada_en,
     )
+    return _a_interna(cotizacion)
